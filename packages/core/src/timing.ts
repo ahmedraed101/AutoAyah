@@ -1,5 +1,6 @@
 import { ASPECT_RATIOS, FPS, READING_SPEEDS, type AspectRatio } from "./constants.js";
-import { isMushafMode, type ResolvedAyah, type ResolvedClip, type TimingConfig, type VideoConfig } from "./schemas.js";
+import { holdOverride } from "./ranges.js";
+import { isMushafMode, type ResolvedAyah, type ResolvedClip, type VideoConfig } from "./schemas.js";
 
 export type Slide = {
   ayah: ResolvedAyah;
@@ -56,12 +57,9 @@ function readingSeconds(tafsir: string | undefined, speed: keyof typeof READING_
   return (words(tafsir) / wpm) * 60;
 }
 
-function ayahDuration(
-  ayah: ResolvedAyah,
-  timing: TimingConfig,
-  mode: VideoConfig["mode"],
-): number {
-  const override = timing.ayahOverrides?.[String(ayah.number)]?.holdSeconds;
+function ayahDuration(ayah: ResolvedAyah, config: VideoConfig): number {
+  const { timing, mode } = config;
+  const override = holdOverride(timing, ayah.surah ?? config.surah, ayah.number, config.surah);
   if (override != null) return Math.max(ayah.audioSeconds, override);
 
   if (timing.mode === "continuous" || mode === "ayah" || mode === "wordHighlight") {
@@ -90,7 +88,7 @@ export function buildTimeline(config: VideoConfig, clip: ResolvedClip): Timeline
   }
 
   for (const ayah of clip.ayat) {
-    const durationInSeconds = Math.max(0.5, ayahDuration(ayah, config.timing, config.mode) + 0.4);
+    const durationInSeconds = Math.max(0.5, ayahDuration(ayah, config) + 0.4);
     const durationInFrames = Math.max(1, Math.ceil(durationInSeconds * FPS));
     const tafsirPages =
       config.mode === "ayahTafsir"
@@ -99,10 +97,11 @@ export function buildTimeline(config: VideoConfig, clip: ResolvedClip): Timeline
           ? paginateTafsir(ayah.tafsir ?? "", MUSHAF_TAFSIR_PAGE_CHARS)
           : [];
 
-    const bgIndex = Math.max(
-      0,
-      config.backgrounds.findIndex((b) => ayah.number >= b.fromAyah && ayah.number <= b.toAyah),
-    );
+    // Background segments are numbered within the first surah; later surahs keep the last matching one.
+    const inFirstSurah = (ayah.surah ?? config.surah) === config.surah;
+    const bgIndex = inFirstSurah
+      ? Math.max(0, config.backgrounds.findIndex((b) => ayah.number >= b.fromAyah && ayah.number <= b.toAyah))
+      : (slides[slides.length - 1]?.backgroundIndex ?? 0);
 
     slides.push({
       ayah,

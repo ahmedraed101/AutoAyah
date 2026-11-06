@@ -30,6 +30,17 @@ export async function fetchSurahList(): Promise<SurahMeta[]> {
   return data.map(({ number, name, englishName, numberOfAyahs }) => ({ number, name, englishName, numberOfAyahs }));
 }
 
+type Ref = { surah: number; ayah: number };
+
+/** Where each juz, hizb quarter, page and manzil starts. */
+export async function fetchDivisionStarts(): Promise<{ juz: Ref[]; rub: Ref[]; page: Ref[]; manzil: Ref[] }> {
+  const { data } = await fetchJson<{
+    data: Record<"juzs" | "hizbQuarters" | "pages" | "manzils", { references: Ref[] }>;
+  }>(`${API}/meta`);
+  const refs = (k: keyof typeof data) => data[k].references.map(({ surah, ayah }) => ({ surah, ayah }));
+  return { juz: refs("juzs"), rub: refs("hizbQuarters"), page: refs("pages"), manzil: refs("manzils") };
+}
+
 export async function fetchSurahEditions(surah: number, editions: string[]): Promise<Edition[]> {
   const ids = editions.filter(Boolean).map(encodeURIComponent).join(",");
   const { data } = await fetchJson<{ data: Edition[] | Edition }>(`${API}/surah/${surah}/editions/${ids}`);

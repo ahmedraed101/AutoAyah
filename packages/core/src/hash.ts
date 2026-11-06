@@ -11,7 +11,9 @@ export function stableStringify(value: unknown): string {
 
 /** 64-bit (cyrb53-style, two 32-bit lanes) hash as hex — no Node crypto so core stays isomorphic. */
 export function hashConfig(config: VideoConfig): string {
-  const s = stableStringify(config);
+  // `range` is only a label, and a null `toSurah` is the single-surah default; neither changes the video.
+  const { range: _range, toSurah, ...rest } = config;
+  const s = stableStringify(toSurah == null ? rest : { ...rest, toSurah });
   let h1 = 0xdeadbeef;
   let h2 = 0x41c6ce57;
   for (let i = 0; i < s.length; i++) {

@@ -17,6 +17,9 @@ export function isMushafSpread(c: { mode: string; aspectRatio?: string; tafsir?:
 export function facingPage(page: number): number {
   return page % 2 ? page + 1 : page - 1;
 }
+export const RangeKindSchema = z.enum(["surah", "juz", "hizb", "rub", "page", "manzil"]);
+export type RangeKind = z.infer<typeof RangeKindSchema>;
+
 export const TimingModeSchema = z.enum(["continuous", "reading"]);
 export const ReadingSpeedSchema = z.enum(["fast", "slow", "verySlow"]);
 export const ExportFormatSchema = z.enum(["mp4", "webm", "png", "srt", "batch"]);
@@ -90,7 +93,12 @@ export const VideoConfigSchema = z
     aspectRatio: AspectRatioSchema.default("9:16"),
     surah: z.number().int().min(1).max(114),
     from: z.number().int().positive(),
+    /** Last surah when the clip runs across surahs (e.g. a juz); null means the clip ends in `surah`. */
+    toSurah: z.number().int().min(1).max(114).nullable().default(null),
+    /** Last ayah, in `toSurah` when set, otherwise in `surah`. */
     to: z.number().int().positive(),
+    /** The named division this range was picked from, for labels only. */
+    range: z.object({ kind: RangeKindSchema, n: z.number().int().positive() }).nullable().default(null),
     reciter: z.string().regex(/^[\w.-]+$/, "Invalid reciter id"),
     tafsir: z.string().nullable().default(null),
     translation: z.string().nullable().default(null),
@@ -102,7 +110,10 @@ export const VideoConfigSchema = z
     export: ExportFormatSchema.default("mp4"),
     pngFrame: z.number().int().min(0).optional(),
   })
-  .refine((c) => c.from <= c.to, { message: "`from` must be less than or equal to `to`", path: ["to"] });
+  .refine((c) => (c.toSurah ?? c.surah) > c.surah || ((c.toSurah ?? c.surah) === c.surah && c.from <= c.to), {
+    message: "The range must end at or after where it starts",
+    path: ["to"],
+  });
 
 export type VideoConfig = z.infer<typeof VideoConfigSchema>;
 export type AudioConfig = z.infer<typeof AudioConfigSchema>;
@@ -179,6 +190,10 @@ export const WordTimingSchema = z.object({
 
 export const ResolvedAyahSchema = z.object({
   number: z.number().int(),
+  /** Surah of this ayah (clips can span surahs). */
+  surah: z.number().int().optional(),
+  /** Basmala shown before this ayah when it opens a surah. */
+  basmala: z.string().optional(),
   text: z.string(),
   /** AlQuran.cloud tajweed markup, e.g. "[h:1[ٱ]". */
   tajweed: z.string().optional(),
@@ -233,6 +248,8 @@ export const ResolvedClipSchema = z.object({
   translationName: z.string().optional(),
   /** Basmala split off the start of ayah 1 (shown as a header, not as part of the ayah). */
   basmala: z.string().optional(),
+  /** Arabic names of every surah in the clip, by number. */
+  surahNames: z.record(z.string(), z.string()).optional(),
   ayat: z.array(ResolvedAyahSchema),
   mushafPages: z.array(MushafPageSchema).optional(),
 });

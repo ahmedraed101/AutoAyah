@@ -1,4 +1,4 @@
-import type { Capabilities, ResolvedClip, VideoConfig } from "@autoayah/core";
+import type { Capabilities, QuranDivisions, ResolvedClip, VideoConfig } from "@autoayah/core";
 import type { LibraryNames } from "./library.js";
 
 export type CacheKind =
@@ -50,6 +50,7 @@ export type ResolveOptions = {
 };
 
 export type ClipRequest = Pick<VideoConfig, "surah" | "from" | "to" | "reciter" | "tafsir" | "translation" | "mode"> & {
+  toSurah?: number | null;
   aspectRatio?: VideoConfig["aspectRatio"];
   style?: { tajweed?: boolean };
 };
@@ -60,6 +61,8 @@ export type Resolver = {
   getTafsirs(): Promise<{ id: string; name: string; language: string; source: string }[]>;
   getTranslations(): Promise<{ id: string; name: string; language: string; source: string }[]>;
   resolveClip(config: ClipRequest): Promise<ResolvedClip>;
+  /** Juz, hizb, rub', page and manzil boundaries. */
+  getDivisions(): Promise<QuranDivisions>;
   capabilities(): Promise<Capabilities>;
   /** Recitation audio from the local cache, downloading it once if needed. */
   getAudio(reciter: string, surah: number, ayah: number): Promise<{ data: Buffer; seconds: number }>;

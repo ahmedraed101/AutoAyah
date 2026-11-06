@@ -18,8 +18,10 @@ export function contentConfig(config: VideoConfig): VideoConfig {
 export function projectName(config: VideoConfig): string {
   const bg = config.backgrounds[0];
   const parts = [
+    config.range && config.range.kind !== "surah" ? `${config.range.kind}${config.range.n}` : null,
     pad(config.surah),
     pad(config.from),
+    config.toSurah != null && config.toSurah !== config.surah ? pad(config.toSurah) : null,
     pad(config.to),
     config.reciter,
     config.mode,

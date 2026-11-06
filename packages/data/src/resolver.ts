@@ -1,18 +1,22 @@
 import {
   DEFAULT_RECITERS,
   EMPTY_CAPABILITIES,
+  clipSegments,
+  divisionsFromStarts,
   facingPage,
   isMushafMode,
   isMushafSpread,
   mergeCapabilities,
   type Capabilities,
   type MushafLine,
+  type QuranDivisions,
   type ResolvedAyah,
   type ResolvedClip,
   type VideoConfig,
   type WordTiming,
 } from "@autoayah/core";
 import {
+  fetchDivisionStarts,
   fetchSurahEditions,
   fetchSurahList,
   PUBLIC_TAFSIRS,
@@ -134,6 +138,26 @@ export function createResolver(opts: ResolveOptions): Resolver {
       throw e;
     });
     return surahsMemo;
+  };
+
+  let divisionsMemo: Promise<QuranDivisions> | null = null;
+  const getDivisions = () => {
+    divisionsMemo ??= cachedJson(cache, "divisions:v1", "ayah_text", "alquran", fetchDivisionStarts)
+      .then((s) => {
+        const rub = divisionsFromStarts(s.rub);
+        return {
+          juz: divisionsFromStarts(s.juz),
+          hizb: rub.flatMap((q, i) => (i % 4 ? [] : [{ n: i / 4 + 1, start: q.start, end: rub[i + 3]!.end }])),
+          rub,
+          page: divisionsFromStarts(s.page),
+          manzil: divisionsFromStarts(s.manzil),
+        };
+      })
+      .catch((e) => {
+        divisionsMemo = null;
+        throw e;
+      });
+    return divisionsMemo;
   };
 
   /** Whole-surah editions cached individually, so any ayah range is served locally afterwards. */
@@ -436,12 +460,17 @@ export function createResolver(opts: ResolveOptions): Resolver {
         hasMushafLayout: /mushaf|layout|page/i.test(filename),
       });
     },
+    getDivisions,
     async resolveClip(config): Promise<ResolvedClip> {
       const surahs = await getSurahs();
       const meta = surahs.find((s) => s.number === config.surah);
       if (!meta) throw new Error(`Surah ${config.surah} not found`);
-      if (config.from < 1 || config.to < config.from || config.to > meta.numberOfAyahs) {
-        throw new Error(`Ayah range must be within 1-${meta.numberOfAyahs} for surah ${config.surah}`);
+      const segments = clipSegments(config);
+      for (const seg of segments) {
+        const count = surahs.find((s) => s.number === seg.surah)?.numberOfAyahs ?? 0;
+        if (seg.from < 1 || seg.to < seg.from || seg.to > count) {
+          throw new Error(`Ayah range must be within 1-${count} for surah ${seg.surah}`);
+        }
       }
 
       const wantTajweed = config.style?.tajweed !== false && config.mode !== "wordHighlight";
@@ -451,50 +480,59 @@ export function createResolver(opts: ResolveOptions): Resolver {
       const qcTranslation = qcResourceId(config.translation);
       if (config.tafsir && qcTafsir == null) ids.push(config.tafsir);
       if (config.translation && qcTranslation == null) ids.push(config.translation);
-      const [editions, qcTafsirMap, qcTranslationMap] = await Promise.all([
-        getEditions(config.surah, ids),
-        qcTafsir != null ? qcTafsirText(qcTafsir, config.surah) : null,
-        qcTranslation != null ? qcTranslationText(qcTranslation, config.surah) : null,
-      ]);
-
-      const inRange = (n: number) => n >= config.from && n <= config.to;
-      const byNumber = (id: string | null) =>
-        new Map((id ? (editions.get(id)?.ayahs ?? []) : []).filter((a) => inRange(a.n)).map((a) => [a.n, a]));
+      const wantTimings = config.mode === "wordHighlight" || config.mode === "mushafWords";
       const fromRecord = (rec: Record<number, string> | null) =>
         new Map(Object.entries(rec ?? {}).map(([n, text]) => [Number(n), { n: Number(n), text }]));
-      const quran = [...byNumber(QURAN_EDITION).values()];
-      const tajweed = byNumber(wantTajweed ? TAJWEED_EDITION : null);
-      const tafsir = qcTafsir != null ? fromRecord(qcTafsirMap) : byNumber(config.tafsir);
-      const translation = qcTranslation != null ? fromRecord(qcTranslationMap) : byNumber(config.translation);
+
+      // One surah at a time keeps audio downloads bounded on long (juz-sized) clips.
+      const parts: { editions: Map<string, CachedEdition>; ayat: ResolvedAyah[] }[] = [];
+      for (const seg of segments) {
+        const [editions, qcTafsirMap, qcTranslationMap] = await Promise.all([
+          getEditions(seg.surah, ids),
+          qcTafsir != null ? qcTafsirText(qcTafsir, seg.surah) : null,
+          qcTranslation != null ? qcTranslationText(qcTranslation, seg.surah) : null,
+        ]);
+        const inRange = (n: number) => n >= seg.from && n <= seg.to;
+        const byNumber = (id: string | null) =>
+          new Map((id ? (editions.get(id)?.ayahs ?? []) : []).filter((a) => inRange(a.n)).map((a) => [a.n, a]));
+        const quran = [...byNumber(QURAN_EDITION).values()];
+        const tajweed = byNumber(wantTajweed ? TAJWEED_EDITION : null);
+        const tafsir = qcTafsir != null ? fromRecord(qcTafsirMap) : byNumber(config.tafsir);
+        const translation = qcTranslation != null ? fromRecord(qcTranslationMap) : byNumber(config.translation);
+        const timings = wantTimings
+          ? await wordTimings({ ...seg, reciter: config.reciter })
+          : new Map<number, WordTiming[]>();
+
+        const ayat: ResolvedAyah[] = await mapLimit(quran, AUDIO_CONCURRENCY, async (a) => {
+          const split = splitBasmala(seg.surah, a.n, a.text);
+          const { seconds } = await getAudio(config.reciter, seg.surah, a.n);
+          return {
+            number: a.n,
+            surah: seg.surah,
+            basmala: split.basmala,
+            text: split.text,
+            tajweed: tajweed.get(a.n)?.text,
+            words: splitWords(split.text),
+            tafsir: tafsir.get(a.n)?.text,
+            translation: translation.get(a.n)?.text,
+            audioUrl: localAudioPath(config.reciter, seg.surah, a.n),
+            audioSeconds: seconds,
+            wordTimings: timings.get(a.n),
+            page: isMushafMode(config.mode) ? a.page : undefined,
+          };
+        });
+        parts.push({ editions, ayat });
+      }
+      const ayat = parts.flatMap((p) => p.ayat);
+      const basmala = ayat[0]?.basmala;
+
       const titleOf = (id: string | null, catalog: { id: string; name: string }[]) =>
-        id ? (catalog.find((t) => t.id === id)?.name ?? editions.get(id)?.title ?? id) : undefined;
+        id ? (catalog.find((t) => t.id === id)?.name ?? parts[0]?.editions.get(id)?.title ?? id) : undefined;
       const qcCatalog = (list: QcResource[]) => list.map((r) => ({ id: `qc-${r.id}`, name: r.name }));
       const [tafsirCatalog, translationCatalog] = await Promise.all([
         qcTafsir != null ? getTafsirs() : PUBLIC_TAFSIRS,
         qcTranslation != null ? qcTranslations().then(qcCatalog) : PUBLIC_TRANSLATIONS,
       ]);
-
-      const wantTimings = config.mode === "wordHighlight" || config.mode === "mushafWords";
-      const timings = wantTimings ? await wordTimings(config) : new Map<number, WordTiming[]>();
-
-      let basmala: string | undefined;
-      const ayat: ResolvedAyah[] = await mapLimit(quran, AUDIO_CONCURRENCY, async (a) => {
-        const split = splitBasmala(config.surah, a.n, a.text);
-        basmala ??= split.basmala;
-        const { seconds } = await getAudio(config.reciter, config.surah, a.n);
-        return {
-          number: a.n,
-          text: split.text,
-          tajweed: tajweed.get(a.n)?.text,
-          words: splitWords(split.text),
-          tafsir: tafsir.get(a.n)?.text,
-          translation: translation.get(a.n)?.text,
-          audioUrl: localAudioPath(config.reciter, config.surah, a.n),
-          audioSeconds: seconds,
-          wordTimings: timings.get(a.n),
-          page: isMushafMode(config.mode) ? a.page : undefined,
-        };
-      });
 
       let mushafPages: ResolvedClip["mushafPages"];
       if (isMushafMode(config.mode)) {
@@ -523,7 +561,8 @@ export function createResolver(opts: ResolveOptions): Resolver {
         surahNameEn: meta.englishName,
         tafsirName: titleOf(config.tafsir, tafsirCatalog),
         translationName: titleOf(config.translation, translationCatalog),
-        basmala: config.from === 1 ? basmala : undefined,
+        basmala,
+        surahNames: Object.fromEntries(segments.map((s) => [String(s.surah), surahs.find((x) => x.number === s.surah)?.name ?? ""])),
         ayat,
         mushafPages,
       };
