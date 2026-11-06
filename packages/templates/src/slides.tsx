@@ -517,6 +517,70 @@ function MushafPageBlock({ props, p, width, maxHeight }: { props: SlideProps; p:
   );
 }
 
+/** Paper and ink for the scanned page; the scan is transparent ink, recolored by an SVG filter. */
+const PAPERS = {
+  ivory: { bg: "#fffdf8", ink: "#1b1b1b" },
+  white: { bg: "#ffffff", ink: "#000000" },
+  sepia: { bg: "#f3e6cc", ink: "#3b2a18" },
+  mint: { bg: "#eef6ee", ink: "#14301f" },
+  night: { bg: "#14120e", ink: "#ece6d8" },
+} as const;
+
+type FrameKind = NonNullable<StyleConfig["mushafFrame"]>;
+
+function frameStyle(kind: FrameKind, frame: number, p: Palette, bg: string): CSSProperties {
+  switch (kind) {
+    case "ornate":
+      return {
+        background: bg,
+        border: `${frame * 0.32}px double ${p.primary}`,
+        outline: `${Math.max(1, frame * 0.08)}px solid ${p.accent}`,
+        outlineOffset: -frame * 0.6,
+        borderRadius: frame * 0.4,
+        boxShadow: `0 0 0 ${Math.max(1, frame * 0.1)}px ${p.accent}88`,
+      };
+    case "simple":
+      return { background: bg, border: `${Math.max(1, frame * 0.08)}px solid ${p.accent}aa`, borderRadius: frame * 0.3 };
+    case "card":
+      return { background: bg, borderRadius: frame * 1.6, boxShadow: `0 ${frame}px ${frame * 3.5}px rgba(0,0,0,0.22)` };
+    case "none":
+      return { background: bg };
+    default:
+      return {
+        background: bg,
+        border: `${Math.max(1, frame * 0.12)}px solid ${p.primary}66`,
+        outline: `${Math.max(1, frame * 0.05)}px solid ${p.accent}55`,
+        outlineOffset: -frame * 0.45,
+        borderRadius: frame * 0.8,
+      };
+  }
+}
+
+/** Small eight-petal rosettes on the corners of the ornate frame. */
+function OrnateCorners({ size, p }: { size: number; p: Palette }) {
+  const offset = -size * 0.42;
+  const corners: CSSProperties[] = [
+    { top: offset, left: offset },
+    { top: offset, right: offset },
+    { bottom: offset, left: offset },
+    { bottom: offset, right: offset },
+  ];
+  return (
+    <>
+      {corners.map((pos, i) => (
+        <svg key={i} viewBox="-50 -50 100 100" width={size} height={size} style={{ position: "absolute", zIndex: 1, ...pos }} aria-hidden="true">
+          <circle r="30" fill={p.primary} />
+          {[0, 45, 90, 135, 180, 225, 270, 315].map((r) => (
+            <ellipse key={r} cx="0" cy="-30" rx="11" ry="18" fill={p.primary} stroke={p.accent} strokeWidth="3" transform={`rotate(${r})`} />
+          ))}
+          <circle r="22" fill="none" stroke={p.accent} strokeWidth="4" />
+          <circle r="9" fill={p.accent} />
+        </svg>
+      ))}
+    </>
+  );
+}
+
 /** The scanned printed page; everything except the current ayah is softly veiled. */
 function MushafScan({ props, p, width, maxHeight }: { props: SlideProps; p: Palette; width: number; maxHeight: number }) {
   const { mushafPage, surah, slide, style, surahName } = props;
@@ -537,20 +601,21 @@ function MushafScan({ props, p, width, maxHeight }: { props: SlideProps; p: Pale
     ([x, y, bw, bh]) => [x - pad, y - pad * 0.6, bw + pad * 2, bh + pad * 1.2] as const,
   );
   const maskId = `ayah-mask-${mushafPage.page}-${slide.ayah.number}`;
-  const dark = style.theme === "dark";
+  const paper = PAPERS[style.mushafPaper === "auto" || !style.mushafPaper ? (style.theme === "dark" ? "night" : "ivory") : style.mushafPaper];
+  const inkId = `mushaf-ink-${paper.ink.replace("#", "")}`;
+  const wordBoxes = mushafPage.words?.[`${surah}:${slide.ayah.number}`] ?? [];
+  const word = (props.highlightedWordIndex ?? -1) >= 0 ? wordBoxes[Math.min(props.highlightedWordIndex!, wordBoxes.length - 1)] : undefined;
+  const frameKind = style.mushafFrame ?? "classic";
 
   return (
-    <div
-      style={{
-        alignSelf: "center",
-        padding: `0 ${frame}px ${frame}px`,
-        border: `${Math.max(1, frame * 0.12)}px solid ${p.primary}66`,
-        outline: `${Math.max(1, frame * 0.05)}px solid ${p.accent}55`,
-        outlineOffset: -frame * 0.45,
-        borderRadius: frame * 0.8,
-        background: dark ? "#14120e" : "#fffdf8",
-      }}
-    >
+    <div style={{ position: "relative", alignSelf: "center", padding: `0 ${frame}px ${frame}px`, ...frameStyle(frameKind, frame, p, paper.bg) }}>
+      {frameKind === "ornate" ? <OrnateCorners size={frame * 2.6} p={p} /> : null}
+      <svg width={0} height={0} style={{ position: "absolute" }} aria-hidden="true">
+        <filter id={inkId} colorInterpolationFilters="sRGB">
+          <feFlood floodColor={paper.ink} />
+          <feComposite in2="SourceAlpha" operator="in" />
+        </filter>
+      </svg>
       <div
         dir="rtl"
         style={{
@@ -561,13 +626,14 @@ function MushafScan({ props, p, width, maxHeight }: { props: SlideProps; p: Pale
           fontSize: headerSize,
           lineHeight: `${headerHeight}px`,
           color: p.accent,
+          paddingInline: frameKind === "ornate" ? frame * 1.3 : 0,
         }}
       >
         <span>{surahName}</span>
         <span>{toArabicDigits(mushafPage.page)}</span>
       </div>
       <div style={{ position: "relative", width: w, height: h, overflow: "hidden" }}>
-        <Img src={image.url} style={{ width: w, height: image.height * scale, display: "block", filter: dark ? "invert(0.92)" : undefined }} />
+        <Img src={image.url} style={{ width: w, height: image.height * scale, display: "block", filter: `url(#${inkId})` }} />
         {current.length ? (
           <svg viewBox={`0 0 ${image.width} ${image.height}`} style={{ position: "absolute", top: 0, left: 0, width: w, height: image.height * scale }}>
             <defs>
@@ -578,10 +644,24 @@ function MushafScan({ props, p, width, maxHeight }: { props: SlideProps; p: Pale
                 ))}
               </mask>
             </defs>
-            <rect x={0} y={0} width={image.width} height={image.height} fill={dark ? "#14120e" : "#fffdf8"} opacity={0.6} mask={`url(#${maskId})`} />
+            <rect x={0} y={0} width={image.width} height={image.height} fill={paper.bg} opacity={0.6} mask={`url(#${maskId})`} />
             {current.map(([x, y, bw, bh], i) => (
               <rect key={i} x={x} y={y} width={bw} height={bh} rx={14} fill={p.primary} opacity={0.13} />
             ))}
+            {word ? (
+              <rect
+                x={word[0] - 6}
+                y={word[1] - 6}
+                width={word[2] + 12}
+                height={word[3] + 12}
+                rx={12}
+                fill={p.accent}
+                fillOpacity={0.28}
+                stroke={p.accent}
+                strokeOpacity={0.7}
+                strokeWidth={2.5}
+              />
+            ) : null}
           </svg>
         ) : null}
       </div>
@@ -610,7 +690,7 @@ export function MushafPageSlide(props: SlideProps) {
               <MushafPageBlock props={props} p={p} width={l.columnWidth} maxHeight={height - l.padY * 2} />
             )}
           </div>
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: l.gap }}>
+          <div style={{ flex: 1, height: available, display: "flex", flexDirection: "column", justifyContent: "center", gap: l.gap }}>
             <SurahBanner name={surahName} width={l.columnWidth} p={p} />
             {hasTafsir ? <TafsirBlock props={props} l={l} p={p} maxHeight={available - l.bannerHeight - l.gap} /> : null}
           </div>
@@ -627,7 +707,11 @@ export function MushafPageSlide(props: SlideProps) {
       ) : (
         <MushafPageBlock props={props} p={p} width={l.columnWidth} maxHeight={available * (hasTafsir ? 0.68 : 1)} />
       )}
-      {hasTafsir ? <TafsirBlock props={props} l={l} p={p} maxHeight={available * 0.32} /> : null}
+      {hasTafsir ? (
+        <div style={{ height: available * 0.32 - l.gap, display: "flex", flexDirection: "column", gap: l.gap * 0.5, overflow: "hidden" }}>
+          <TafsirBlock props={props} l={l} p={p} maxHeight={available * 0.32 - l.gap} />
+        </div>
+      ) : null}
       {style.showWatermark ? <Watermark text={style.watermarkText} p={p} u={l.u} /> : null}
     </Frame>
   );

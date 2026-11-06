@@ -1,6 +1,6 @@
 import { AbsoluteFill, Audio, Img, Loop, OffthreadVideo, Sequence, Video, interpolate, useCurrentFrame } from "remotion";
 import { useEffect, useState } from "react";
-import type { Slide } from "@autoayah/core";
+import { isMushafMode, type Slide } from "@autoayah/core";
 import type { CompositionProps } from "../types";
 import { BackgroundLayer } from "../Background";
 import { AyahSlide, AyahTafsirSlide, MushafPageSlide, WordHighlightSlide, type SlideProps } from "../slides";
@@ -11,8 +11,11 @@ const SLIDE_FADE_FRAMES = 6;
 
 const letters = (w: string) => w.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED\s]/g, "").length || 1;
 
-/** Word index being recited: real timings when available, otherwise estimated from word length. */
-export function wordIndexAt(slide: Slide, localFrame: number, fps: number): number {
+/**
+ * Word index being recited: real timings when available, otherwise estimated from word length
+ * (`widths` overrides the per-word weights, e.g. glyph widths on the Mushaf scan).
+ */
+export function wordIndexAt(slide: Slide, localFrame: number, fps: number, widths?: number[]): number {
   const ms = (localFrame / fps) * 1000;
   const timings = slide.ayah.wordTimings;
   if (timings?.length) {
@@ -21,18 +24,17 @@ export function wordIndexAt(slide: Slide, localFrame: number, fps: number): numb
     const before = timings.filter((t) => t.endMs <= ms);
     return before.length ? before[before.length - 1]!.index - 1 : -1;
   }
-  const words = slide.ayah.words ?? [];
-  if (!words.length || !slide.ayah.audioSeconds) return -1;
-  const weights = words.map(letters);
+  const weights = widths?.length ? widths : (slide.ayah.words ?? []).map(letters);
+  if (!weights.length || !slide.ayah.audioSeconds) return -1;
   const total = weights.reduce((a, b) => a + b, 0);
   const progress = ms / (slide.ayah.audioSeconds * 1000);
-  if (progress >= 1) return words.length - 1;
+  if (progress >= 1) return weights.length - 1;
   let acc = 0;
   for (let i = 0; i < weights.length; i++) {
     acc += weights[i]! / total;
     if (progress < acc) return i;
   }
-  return words.length - 1;
+  return weights.length - 1;
 }
 
 /** Tafsir pages share the slide time in proportion to their length, with a short cross-fade. */
@@ -130,33 +132,36 @@ export const AutoAyahComposition: React.FC<CompositionProps> = ({
         );
       })}
 
-      {slides.map((slide, i) => {
-        const bg = config.backgrounds[slide.backgroundIndex];
-        const found = mushafPages?.find((p) => p.page === slide.ayah.page);
+      {pageSpans(slides, isMushafMode(config.mode)).map((span) => {
+        const found = mushafPages?.find((p) => p.page === span.slides[0]!.slide.ayah.page);
         const page = found?.image ? { ...found, image: { ...found.image, url: asset(found.image.url) } } : found;
-        const mode = config.mode === "mushafPage" && !page ? "ayahTafsir" : config.mode;
+        const mode = isMushafMode(config.mode) && !page ? "ayahTafsir" : config.mode;
         return (
-          <Sequence key={`${slide.ayah.number}-${i}`} from={slide.startFrame} durationInFrames={slide.durationInFrames}>
-            <SlideByMode
+          <Sequence key={`slides-${span.from}`} from={span.from} durationInFrames={span.duration}>
+            <SpanSlides
+              span={span}
               mode={mode}
-              slide={slide}
               surahName={surahName}
               tafsirName={tafsirName}
               translationName={translationName}
-              basmala={i === 0 ? basmala : undefined}
+              basmala={basmala}
               style={style}
               width={width}
               height={height}
               fps={fps}
-              overMedia={bg?.type === "image" || bg?.type === "video"}
+              backgrounds={config.backgrounds}
               mushafPage={page}
               surah={config.surah}
-              fadeFrames={i === 0 ? 0 : SLIDE_FADE_FRAMES}
             />
-            <Audio src={asset(slide.ayah.audioUrl)} volume={(f) => audio.recitationVolume * masterVolAt(slide.startFrame + f)} />
           </Sequence>
         );
       })}
+
+      {slides.map((slide, i) => (
+        <Sequence key={`audio-${slide.ayah.number}-${i}`} from={slide.startFrame} durationInFrames={slide.durationInFrames}>
+          <Audio src={asset(slide.ayah.audioUrl)} volume={(f) => audio.recitationVolume * masterVolAt(slide.startFrame + f)} />
+        </Sequence>
+      ))}
 
       {audio.ambienceId ? (
         <Audio src={asset(`/ambience/${audio.ambienceId}.wav`)} volume={(f) => audio.ambienceVolume * masterVolAt(f)} loop />
@@ -165,17 +170,73 @@ export const AutoAyahComposition: React.FC<CompositionProps> = ({
   );
 };
 
-function SlideByMode({ mode, fps, fadeFrames, ...rest }: SlideProps & { mode: string; fps: number; fadeFrames: number }) {
-  const local = useCurrentFrame();
-  const highlightedWordIndex = mode === "wordHighlight" ? wordIndexAt(rest.slide, local, fps) : -1;
+type PageSpan = { slides: { slide: Slide; index: number }[]; from: number; duration: number };
+
+/** Mushaf mode keeps one page mounted across its ayat; other modes get one span per slide. */
+function pageSpans(slides: Slide[], groupByPage: boolean): PageSpan[] {
+  const spans: PageSpan[] = [];
+  slides.forEach((slide, index) => {
+    const last = spans[spans.length - 1];
+    if (groupByPage && last && last.slides[0]!.slide.ayah.page === slide.ayah.page) {
+      last.slides.push({ slide, index });
+      last.duration += slide.durationInFrames;
+    } else {
+      spans.push({ slides: [{ slide, index }], from: slide.startFrame, duration: slide.durationInFrames });
+    }
+  });
+  return spans;
+}
+
+type SpanProps = Omit<SlideProps, "slide" | "overMedia"> & {
+  span: PageSpan;
+  mode: string;
+  fps: number;
+  backgrounds: CompositionProps["config"]["backgrounds"];
+};
+
+function SpanSlides({ span, backgrounds, basmala, ...rest }: SpanProps) {
+  const frame = span.from + useCurrentFrame();
+  const current = [...span.slides].reverse().find((s) => s.slide.startFrame <= frame) ?? span.slides[0]!;
+  const { slide, index } = current;
+  const bg = backgrounds[slide.backgroundIndex];
+  const grouped = span.slides.length > 1 || isMushafMode(rest.mode);
+  return (
+    <SlideByMode
+      {...rest}
+      slide={slide}
+      local={frame - slide.startFrame}
+      basmala={index === 0 ? basmala : undefined}
+      overMedia={bg?.type === "image" || bg?.type === "video"}
+      fadeFrames={index === 0 || grouped ? 0 : SLIDE_FADE_FRAMES}
+      tafsirFadeFrames={grouped && index > 0 ? PAGE_FADE_FRAMES : 0}
+    />
+  );
+}
+
+function SlideByMode({
+  mode,
+  fps,
+  fadeFrames,
+  tafsirFadeFrames,
+  local,
+  ...rest
+}: SlideProps & { mode: string; fps: number; fadeFrames: number; tafsirFadeFrames: number; local: number }) {
+  const pageWords = rest.mushafPage?.words?.[`${rest.surah}:${rest.slide.ayah.number}`];
+  const highlightedWordIndex =
+    mode === "wordHighlight"
+      ? wordIndexAt(rest.slide, local, fps)
+      : mode === "mushafWords"
+        ? wordIndexAt(rest.slide, local, fps, pageWords?.map((b) => b[2]))
+        : -1;
   const { index, opacity } = tafsirPageAt(rest.slide, local);
-  const props: SlideProps = { ...rest, highlightedWordIndex, tafsirPageIndex: index, tafsirOpacity: opacity };
+  const tafsirEnter = tafsirFadeFrames ? interpolate(local, [0, tafsirFadeFrames], [0, 1], { extrapolateRight: "clamp" }) : 1;
+  const props: SlideProps = { ...rest, highlightedWordIndex, tafsirPageIndex: index, tafsirOpacity: opacity * tafsirEnter };
   const enter = fadeFrames ? interpolate(local, [0, fadeFrames], [0, 1], { extrapolateRight: "clamp" }) : 1;
 
   const body =
     mode === "ayahTafsir" ? (
       <AyahTafsirSlide {...props} />
-    ) : mode === "mushafPage" ? (
+    ) : isMushafMode(mode) ? (
       <MushafPageSlide {...props} />
     ) : mode === "wordHighlight" ? (
       <WordHighlightSlide {...props} />
