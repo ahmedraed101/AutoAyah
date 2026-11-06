@@ -20,6 +20,16 @@ export function Group({ label, children }: { label: ReactNode; children: ReactNo
   );
 }
 
+/** A titled group of related fields inside a tool panel. */
+export function Section({ title, children }: { title: ReactNode; children: ReactNode }) {
+  return (
+    <section className="tool-section">
+      <h3>{title}</h3>
+      {children}
+    </section>
+  );
+}
+
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <span className="select">

@@ -29,7 +29,20 @@ export function openApiSpec(publicUrl: string) {
       "/api/tafsirs": { get: { summary: "List tafsirs", responses: { "200": { description: "Tafsirs" } } } },
       "/api/translations": { get: { summary: "List translations", responses: { "200": { description: "Translations" } } } },
       "/api/preview": {
-        post: { summary: "Dry-run: resolved slides, duration and warnings without rendering", requestBody: configBody, responses: { "200": { description: "Composition props" } } },
+        post: {
+          summary: "Dry-run: resolved slides, duration and warnings without rendering",
+          parameters: [
+            {
+              name: "draft",
+              in: "query",
+              required: false,
+              description: "1 = text only: no recitation audio or word timings, durations are estimates",
+              schema: { type: "string", enum: ["1"] },
+            },
+          ],
+          requestBody: configBody,
+          responses: { "200": { description: "Composition props" } },
+        },
       },
       "/api/jobs": {
         get: { summary: "List render jobs", responses: { "200": { description: "Jobs" } } },

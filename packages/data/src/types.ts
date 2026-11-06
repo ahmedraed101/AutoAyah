@@ -53,6 +53,8 @@ export type ClipRequest = Pick<VideoConfig, "surah" | "from" | "to" | "reciter" 
   toSurah?: number | null;
   aspectRatio?: VideoConfig["aspectRatio"];
   style?: { tajweed?: boolean };
+  /** Text only: skip recitation audio and word timings, and estimate each ayah's length. */
+  draft?: boolean;
 };
 
 export type Resolver = {

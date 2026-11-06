@@ -32,7 +32,10 @@ export function Projects() {
 
   const differences = useDifferences(items.map((p) => p.config));
   const open = (p: Project) => {
-    setConfig(p.config);
+    if (!setConfig(p.config)) {
+      setError(useEditor.getState().configError);
+      return;
+    }
     setProject(p.name, p.id);
     nav("/");
   };

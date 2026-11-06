@@ -92,9 +92,9 @@ function checkRange(config: VideoConfig) {
   }
 }
 
-async function preview(config: VideoConfig) {
+async function preview(config: VideoConfig, draft = false) {
   checkRange(config);
-  return buildProps(config, resolver(), limits);
+  return buildProps(config, resolver(), limits, draft);
 }
 
 function createJob(config: VideoConfig): Job {
@@ -216,7 +216,7 @@ app.get("/api/translations", handle(async (_req, res) => res.json(await resolver
 
 app.post(
   "/api/preview",
-  handle(async (req, res) => res.json(await preview(VideoConfigSchema.parse(req.body)))),
+  handle(async (req, res) => res.json(await preview(VideoConfigSchema.parse(req.body), req.query.draft === "1"))),
 );
 
 app.get("/api/jobs", (req, res) => res.json(queue.list(Math.min(500, Number(req.query.limit) || 50))));

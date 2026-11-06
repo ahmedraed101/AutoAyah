@@ -4,6 +4,10 @@ import type { CompositionProps } from "../types";
 export const PAGE_FADE_FRAMES = 8;
 export const SLIDE_FADE_FRAMES = 6;
 
+/** First frame where a slide is fully faded in: where to land when jumping to an ayah. */
+export const restFrame = (slide: { startFrame: number; durationInFrames: number }) =>
+  Math.min(slide.startFrame + Math.max(PAGE_FADE_FRAMES, SLIDE_FADE_FRAMES), slide.startFrame + slide.durationInFrames - 1);
+
 type MushafPage = NonNullable<CompositionProps["mushafPages"]>[number];
 
 const letters = (w: string) => w.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED\s]/g, "").length || 1;

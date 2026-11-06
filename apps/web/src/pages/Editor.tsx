@@ -5,6 +5,7 @@ import {
   ASPECT_RATIOS,
   AMBIENCE_PRESETS,
   ayahKey,
+  buildTimeline,
   canUseMode,
   holdOverride,
   isMushafMode,
@@ -14,10 +15,10 @@ import {
   type VideoConfig,
   type VideoMode,
 } from "@autoayah/core";
-import { AutoAyahComposition } from "@autoayah/templates";
+import { AutoAyahComposition, restFrame } from "@autoayah/templates";
 import { api, type MediaResult, type PreviewResult } from "../api";
 import { browserStore } from "../browserStore";
-import { Field, Group, Segmented, Select, Slider, Stepper, Switch } from "../components/controls";
+import { Field, Group, Section, Segmented, Select, Slider, Stepper, Switch } from "../components/controls";
 import { Icon, Rosette } from "../components/Icon";
 import { useEditor, type Panel } from "../store";
 import { RangePicker } from "../components/RangePicker";
@@ -27,8 +28,8 @@ import { groupBy, languageName } from "../catalog";
 
 type Option = { id: string; name: string; nameAr?: string; language?: string; hasWordTimings?: boolean };
 
-const TABS: Panel[] = ["content", "mode", "timing", "style", "background", "audio"];
-const MODES: VideoMode[] = ["ayah", "ayahTafsir", "mushafPage", "mushafWords", "wordHighlight"];
+const TABS: Panel[] = ["ayat", "recitation", "look", "background"];
+const MODES: VideoMode[] = ["mushafPage", "mushafWords", "ayah", "ayahTafsir", "wordHighlight"];
 const EXPORTS: { value: VideoConfig["export"]; label: string }[] = [
   { value: "mp4", label: "MP4" },
   { value: "webm", label: "WebM" },
@@ -45,12 +46,16 @@ const clock = (sec: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-/** Fields that change what the preview shows (export format does not). */
+/** Fields that change the composed video (export format does not). */
 const previewKey = (c: VideoConfig) => JSON.stringify({ ...c, export: undefined, pngFrame: undefined });
+
+/** Fields the server needs for the text-only view; timing, style and backgrounds are applied in the browser. */
+const draftKey = (c: VideoConfig) =>
+  JSON.stringify([c.surah, c.from, c.toSurah, c.to, c.mode, c.tafsir, c.translation, c.aspectRatio, c.style.tajweed]);
 
 export function Editor() {
   const { t } = useTranslation();
-  const { config, configError, setConfig, setNested, panel, setPanel, appConfig, selectedAyah, setSelectedAyah, setProject, projectId, lang } =
+  const { config, configError, missing, setConfig, setNested, panel, setPanel, appConfig, selectedAyah, setSelectedAyah, setProject, projectId, lang } =
     useEditor();
 
   const surahs = useSurahs();
@@ -58,9 +63,11 @@ export function Editor() {
   const [reciters, setReciters] = useState<Option[]>([]);
   const [tafsirs, setTafsirs] = useState<Option[]>([]);
   const [translations, setTranslations] = useState<Option[]>([]);
-  const [preview, setPreview] = useState<PreviewResult>();
-  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [draft, setDraft] = useState<PreviewResult>();
+  const [composed, setComposed] = useState<{ key: string; result: PreviewResult }>();
+  const [composing, setComposing] = useState(false);
   const [error, setError] = useState<string>();
+  const [draftError, setDraftError] = useState<string>();
   const [job, setJob] = useState<Job>();
   const [status, setStatus] = useState<string>();
   const [media, setMedia] = useState<MediaResult[]>([]);
@@ -69,6 +76,7 @@ export function Editor() {
   const [mediaNote, setMediaNote] = useState<string>();
   const [searching, setSearching] = useState(false);
   const events = useRef<EventSource | null>(null);
+  const composeAbort = useRef<AbortController | null>(null);
   const stage = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const strip = useRef<HTMLDivElement>(null);
@@ -94,34 +102,72 @@ export function Editor() {
     return () => events.current?.close();
   }, []);
 
-  const key = previewKey(config);
+  const textKey = missing.surah ? "" : draftKey(config);
   useEffect(() => {
+    setPlayingAyah(undefined);
+    if (!textKey) {
+      setDraft(undefined);
+      return;
+    }
     const ac = new AbortController();
     const timer = setTimeout(() => {
-      setLoadingPreview(true);
       api
-        .preview(config, ac.signal)
-        .then((p) => {
-          setPreview(p);
-          setError(undefined);
+        .draft(config, ac.signal)
+        .then((d) => {
+          setDraft(d);
+          setDraftError(undefined);
         })
         .catch((e: Error) => {
-          if (e.name !== "AbortError") setError(e.message);
-        })
-        .finally(() => setLoadingPreview(false));
-    }, 400);
+          if (e.name === "AbortError") return;
+          setDraft(undefined);
+          setDraftError(e.message);
+        });
+    }, 200);
     return () => {
       clearTimeout(timer);
       ac.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [textKey]);
+
+  // Any edit after composing goes back to the live view, and cancels a compose in flight.
+  const fullKey = previewKey(config);
+  const isComposed = composed?.key === fullKey && !missing.reciter;
+  useEffect(() => {
+    composeAbort.current?.abort();
+  }, [fullKey]);
+
+  const liveTimeline = useMemo(() => {
+    if (!draft) return undefined;
+    const ayat = draft.timeline.slides.map((s) => s.ayah);
+    return buildTimeline(config, { ...draft, surah: draft.config.surah, ayat, draft: true });
+  }, [draft, config]);
+
+  const shown: PreviewResult | undefined = isComposed
+    ? composed.result
+    : draft && liveTimeline
+      ? { ...draft, timeline: liveTimeline, config, warnings: [...new Set([...draft.warnings, ...liveTimeline.warnings])] }
+      : undefined;
+
+  // Composed: start from the selected ayah. Back to live (any edit): stop, so nothing plays without controls.
+  useEffect(() => {
+    const p = player.current;
+    if (!p) return;
+    if (!isComposed) {
+      p.pause();
+      return;
+    }
+    const from = composed.result.timeline.slides.find((s) => ayahKey(s.ayah.surah ?? config.surah, s.ayah.number) === selectedAyah);
+    p.seekTo(from ? restFrame(from) : 0);
+    p.play();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isComposed]);
 
   useEffect(() => {
     body.current?.scrollTo({ top: 0 });
   }, [panel]);
 
-  const slides = preview?.timeline.slides;
+  const slides = shown?.timeline.slides;
   useEffect(() => {
     const p = player.current;
     if (!p || !slides?.length) return;
@@ -150,6 +196,7 @@ export function Editor() {
   const slideRef = (s: { ayah: { surah?: number; number: number } }) => ({ surah: s.ayah.surah ?? config.surah, ayah: s.ayah.number });
   const selectedRef = selectedAyah?.split(":").map(Number) as [number, number] | undefined;
   const caps = appConfig?.capabilities ?? { wordTimings: false, mushafLayout: false, fullTafsirCatalog: false, translations: false };
+  const ready = !missing.surah && !missing.reciter;
 
   const aspect = ASPECT_RATIOS[config.aspectRatio];
   const playerStyle = useMemo(() => {
@@ -157,6 +204,25 @@ export function Editor() {
     const scale = Math.min(maxH / aspect.height, stageSize.width / aspect.width);
     return { width: Math.round(aspect.width * scale), height: Math.round(aspect.height * scale) };
   }, [aspect, stageSize]);
+
+  const compose = async () => {
+    if (missing.reciter) {
+      setPanel("recitation");
+      return;
+    }
+    const ac = new AbortController();
+    composeAbort.current = ac;
+    const key = fullKey;
+    setComposing(true);
+    setError(undefined);
+    try {
+      setComposed({ key, result: await api.preview(config, ac.signal) });
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") setError((e as Error).message);
+    } finally {
+      if (composeAbort.current === ac) setComposing(false);
+    }
+  };
 
   const follow = (j: Job) => {
     setJob(j);
@@ -232,6 +298,7 @@ export function Editor() {
   const style = (patch: Partial<VideoConfig["style"]>) => setNested("style", { ...config.style, ...patch });
   const audio = (patch: Partial<VideoConfig["audio"]>) => setNested("audio", { ...config.audio, ...patch });
   const timing = (patch: Partial<VideoConfig["timing"]>) => setNested("timing", { ...config.timing, ...patch });
+  const modeHint = canUseMode(config.mode, caps) ? t(`${config.mode}Hint`) : t("connectQul");
 
   return (
     <div className="editor">
@@ -239,44 +306,56 @@ export function Editor() {
         <div className="stage-player" ref={stage}>
           {/* Remotion AbsoluteFill breaks under document dir=rtl — keep player LTR-isolated */}
           <div className="preview-stage" dir="ltr">
-            {preview ? (
-              <div className={loadingPreview ? "player loading" : "player"}>
+            {shown ? (
+              <div className="player">
                 <Player
                   component={AutoAyahComposition}
                   inputProps={{
-                    timeline: preview.timeline,
-                    config: preview.config,
-                    surahName: preview.surahName,
-                    tafsirName: preview.tafsirName,
-                    translationName: preview.translationName,
-                    basmala: preview.basmala,
-                    surahNames: preview.surahNames,
-                    mushafPages: preview.mushafPages,
+                    timeline: shown.timeline,
+                    config: shown.config,
+                    surahName: shown.surahName,
+                    tafsirName: shown.tafsirName,
+                    translationName: shown.translationName,
+                    basmala: shown.basmala,
+                    surahNames: shown.surahNames,
+                    mushafPages: shown.mushafPages,
                   }}
-                  durationInFrames={Math.max(1, preview.timeline.totalFrames)}
-                  fps={preview.timeline.fps}
-                  compositionWidth={preview.timeline.width}
-                  compositionHeight={preview.timeline.height}
+                  durationInFrames={Math.max(1, shown.timeline.totalFrames)}
+                  fps={shown.timeline.fps}
+                  compositionWidth={shown.timeline.width}
+                  compositionHeight={shown.timeline.height}
                   style={playerStyle}
                   ref={player}
                   acknowledgeRemotionLicense
-                  controls
+                  controls={isComposed}
+                  clickToPlay={isComposed}
                 />
               </div>
-            ) : (
+            ) : !missing.surah ? (
               <div className="player-placeholder" style={playerStyle}>
                 <Rosette size={40} />
                 <span>{t("loadingPreview")}</span>
+              </div>
+            ) : (
+              <div className="player-placeholder start" style={playerStyle} dir={lang === "ar" ? "rtl" : "ltr"}>
+                <Rosette size={40} />
+                <strong>{t("startTitle")}</strong>
+                {panel !== "ayat" ? (
+                  <button type="button" className="btn btn-quiet" onClick={() => setPanel("ayat")}>
+                    {t("startChoose")}
+                  </button>
+                ) : null}
               </div>
             )}
           </div>
         </div>
 
-        {configError || error || preview?.warnings?.length ? (
+        {configError || error || draftError || shown?.warnings?.length ? (
           <div className="notices" role="status">
             {configError ? <p className="notice error">{configError}</p> : null}
+            {draftError ? <p className="notice error">{draftError}</p> : null}
             {error ? <p className="notice error">{error}</p> : null}
-            {preview?.warnings?.map((w) => (
+            {shown?.warnings?.map((w) => (
               <p key={w} className="notice warn">
                 {w}
               </p>
@@ -284,16 +363,23 @@ export function Editor() {
           </div>
         ) : null}
 
-        {preview?.timeline.slides.length ? (
+        {slides?.length ? (
           <div className="timeline">
             <div className="timeline-head">
               <span className="timeline-title">
-                {t("ayat")} <bdi className="timeline-total">{clock(totalSeconds)}</bdi>
+                {t("ayat")}{" "}
+                <bdi className="timeline-total">{isComposed ? clock(totalSeconds) : localDigits(slides.length, lang)}</bdi>
               </span>
-              <span className="timeline-hint">{t("timelineHint")}</span>
+              <span className="timeline-hint">{isComposed ? t("timelineHint") : t("liveHint")}</span>
+              {isComposed ? null : (
+                <button type="button" className="btn btn-quiet btn-sm play-btn" disabled={composing} onClick={() => void compose()}>
+                  {composing ? <Rosette size={16} /> : <Icon name="play" size={16} />}
+                  {composing ? t("composing") : missing.reciter ? t("chooseReciterToPlay") : t("playRecitation")}
+                </button>
+              )}
             </div>
             <div className="ayah-strip" ref={strip} aria-label={t("ayat")}>
-              {preview.timeline.slides.map((s, i, all) => {
+              {slides.map((s, i, all) => {
                 const ref = slideRef(s);
                 const k = ayahKey(ref.surah, ref.ayah);
                 const held = holdOverride(config.timing, ref.surah, ref.ayah, config.surah) != null;
@@ -312,15 +398,17 @@ export function Editor() {
                       style={{ flexGrow: s.durationInSeconds }}
                       aria-pressed={selectedAyah === k}
                       title={surahName}
-                      aria-label={`${surahName ? `${surahName} ` : ""}${t("ayahN", { n: s.ayah.number })}, ${t("seconds", { n: s.durationInSeconds.toFixed(1) })}`}
+                      aria-label={`${surahName ? `${surahName} ` : ""}${t("ayahN", { n: s.ayah.number })}${
+                        isComposed ? `, ${t("seconds", { n: s.durationInSeconds.toFixed(1) })}` : ""
+                      }`}
                       onClick={() => {
-                        player.current?.seekTo(s.startFrame);
+                        player.current?.seekTo(restFrame(s));
+                        setPlayingAyah(k);
                         setSelectedAyah(k);
-                        setPanel("timing");
                       }}
                     >
                       <Rosette size={30}>{localDigits(s.ayah.number, lang)}</Rosette>
-                      <span className="ayah-dur">{t("seconds", { n: s.durationInSeconds.toFixed(1) })}</span>
+                      {isComposed ? <span className="ayah-dur">{t("seconds", { n: s.durationInSeconds.toFixed(1) })}</span> : null}
                       {held ? <span className="held-dot" title={t("customHold")} /> : null}
                     </button>
                   </Fragment>
@@ -335,13 +423,206 @@ export function Editor() {
         <div className="tool-tabs" role="tablist" aria-label={t("tools")}>
           {TABS.map((tab) => (
             <button key={tab} type="button" role="tab" aria-selected={panel === tab} className={panel === tab ? "on" : ""} onClick={() => setPanel(tab)}>
-              {t(tab)}
+              {t(tab === "background" ? "background" : `tab_${tab}`)}
             </button>
           ))}
         </div>
 
         <div className="tool-body" ref={body} role="tabpanel">
-          {panel === "content" && (
+          {panel === "ayat" && (
+            <div className="fields">
+              <RangePicker />
+              <Section title={t("onScreen")}>
+                <div className="views" role="radiogroup" aria-label={t("mode")}>
+                  {MODES.map((m) => {
+                    const ok = canUseMode(m, caps);
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        role="radio"
+                        aria-checked={config.mode === m}
+                        disabled={!ok}
+                        title={ok ? t(`${m}Hint`) : t("connectQul")}
+                        className={config.mode === m ? "on" : ""}
+                        onClick={() => setConfig({ mode: m })}
+                      >
+                        {t(m)}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="field-hint">{modeHint}</p>
+                <Field label={t("tafsir")}>
+                  <Select value={config.tafsir ?? ""} onChange={(e) => setConfig({ tafsir: e.target.value || null })}>
+                    <option value="">{t("none")}</option>
+                    {config.tafsir && tafsirs.length && !tafsirs.some((x) => x.id === config.tafsir) ? (
+                      <option value={config.tafsir}>{config.tafsir}</option>
+                    ) : null}
+                    {groupBy(tafsirs, (x) => languageName(x.language, lang)).map(([group, items]) => (
+                      <optgroup key={group} label={group}>
+                        {items.map((x) => (
+                          <option key={x.id} value={x.id}>
+                            {x.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label={t("translation")}>
+                  <Select value={config.translation ?? ""} onChange={(e) => setConfig({ translation: e.target.value || null })}>
+                    <option value="">{t("none")}</option>
+                    {config.translation && translations.length && !translations.some((x) => x.id === config.translation) ? (
+                      <option value={config.translation}>{config.translation}</option>
+                    ) : null}
+                    {groupBy(translations, (x) => languageName(x.language, lang)).map(([group, items]) => (
+                      <optgroup key={group} label={group}>
+                        {items.map((x) => (
+                          <option key={x.id} value={x.id}>
+                            {x.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </Select>
+                </Field>
+              </Section>
+            </div>
+          )}
+
+          {panel === "recitation" && (
+            <div className="fields">
+              <Field label={t("reciter")}>
+                <Select value={missing.reciter ? "" : config.reciter} onChange={(e) => setConfig({ reciter: e.target.value })}>
+                  {missing.reciter ? (
+                    <option value="" disabled>
+                      {t("chooseReciter")}
+                    </option>
+                  ) : reciters.length && !reciters.some((r) => r.id === config.reciter) ? (
+                    <option value={config.reciter}>{config.reciter}</option>
+                  ) : null}
+                  {groupBy(reciters, (r) => (r.hasWordTimings ? t("recitersTimed") : t("recitersOther"))).map(([group, items]) => (
+                    <optgroup key={group} label={group}>
+                      {items.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {(lang === "ar" && r.nameAr) || r.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </Select>
+              </Field>
+
+              <Section title={t("pacing")}>
+                <Segmented
+                  value={config.timing.mode}
+                  onChange={(mode) => timing({ mode })}
+                  options={[
+                    { value: "continuous", label: t("continuous") },
+                    { value: "reading", label: t("reading") },
+                  ]}
+                />
+                {config.timing.mode === "reading" ? (
+                  <Group label={t("speed")}>
+                    <Segmented
+                      value={config.timing.readingSpeed}
+                      onChange={(readingSpeed) => timing({ readingSpeed })}
+                      options={[
+                        { value: "fast", label: t("fast") },
+                        { value: "slow", label: t("slow") },
+                        { value: "verySlow", label: t("verySlow") },
+                      ]}
+                    />
+                  </Group>
+                ) : null}
+                {selectedRef ? (
+                  <Field
+                    label={
+                      multiSurah
+                        ? `${surahTitle(surahs, selectedRef[0], lang)} · ${t("holdAyah", { n: selectedRef[1] })}`
+                        : t("holdAyah", { n: selectedRef[1] })
+                    }
+                  >
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step={0.5}
+                      value={holdOverride(config.timing, selectedRef[0], selectedRef[1], config.surah) ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value === "" ? undefined : Number(e.target.value);
+                        const ayahOverrides = { ...config.timing.ayahOverrides };
+                        if (selectedRef[0] === config.surah) delete ayahOverrides[String(selectedRef[1])];
+                        if (v == null || Number.isNaN(v)) delete ayahOverrides[selectedAyah!];
+                        else ayahOverrides[selectedAyah!] = { holdSeconds: v };
+                        timing({ ayahOverrides });
+                      }}
+                    />
+                  </Field>
+                ) : (
+                  <p className="field-hint">{t("selectAyahHint")}</p>
+                )}
+              </Section>
+
+              <Section title={t("soundMix")}>
+                <Slider
+                  label={t("recitationVolume")}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={config.audio.recitationVolume}
+                  display={percent(config.audio.recitationVolume)}
+                  onChange={(recitationVolume) => audio({ recitationVolume })}
+                />
+                <Field label={t("ambience")}>
+                  <Select value={config.audio.ambienceId ?? ""} onChange={(e) => audio({ ambienceId: e.target.value || null })}>
+                    <option value="">{t("none")}</option>
+                    {AMBIENCE_PRESETS.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {lang === "ar" ? a.nameAr : a.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                {config.audio.ambienceId ? (
+                  <Slider
+                    label={t("ambienceVolume")}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={config.audio.ambienceVolume}
+                    display={percent(config.audio.ambienceVolume)}
+                    onChange={(ambienceVolume) => audio({ ambienceVolume })}
+                  />
+                ) : null}
+                {selectedBg?.type === "video" ? (
+                  <>
+                    <div className="switches">
+                      <Switch
+                        label={t("bgSound")}
+                        checked={config.audio.backgroundVideoSound}
+                        onChange={(backgroundVideoSound) => audio({ backgroundVideoSound })}
+                      />
+                    </div>
+                    {config.audio.backgroundVideoSound ? (
+                      <Slider
+                        label={t("bgVolume")}
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={config.audio.backgroundVideoVolume}
+                        display={percent(config.audio.backgroundVideoVolume)}
+                        onChange={(backgroundVideoVolume) => audio({ backgroundVideoVolume })}
+                      />
+                    ) : null}
+                  </>
+                ) : null}
+              </Section>
+            </div>
+          )}
+
+          {panel === "look" && (
             <div className="fields">
               <Group label={t("aspect")}>
                 <div className="ratios" role="radiogroup">
@@ -362,143 +643,8 @@ export function Editor() {
                   ))}
                 </div>
               </Group>
-              <RangePicker />
-              <Field label={t("reciter")}>
-                <Select value={config.reciter} onChange={(e) => setConfig({ reciter: e.target.value })}>
-                  {reciters.length && !reciters.some((r) => r.id === config.reciter) ? (
-                    <option value={config.reciter}>{config.reciter}</option>
-                  ) : null}
-                  {groupBy(reciters, (r) => (r.hasWordTimings ? t("recitersTimed") : t("recitersOther"))).map(([group, items]) => (
-                    <optgroup key={group} label={group}>
-                      {items.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {(lang === "ar" && r.nameAr) || r.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </Select>
-              </Field>
-              <Field label={t("tafsir")}>
-                <Select value={config.tafsir ?? ""} onChange={(e) => setConfig({ tafsir: e.target.value || null })}>
-                  <option value="">{t("none")}</option>
-                  {config.tafsir && tafsirs.length && !tafsirs.some((x) => x.id === config.tafsir) ? (
-                    <option value={config.tafsir}>{config.tafsir}</option>
-                  ) : null}
-                  {groupBy(tafsirs, (x) => languageName(x.language, lang)).map(([group, items]) => (
-                    <optgroup key={group} label={group}>
-                      {items.map((x) => (
-                        <option key={x.id} value={x.id}>
-                          {x.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </Select>
-              </Field>
-              <Field label={t("translation")}>
-                <Select value={config.translation ?? ""} onChange={(e) => setConfig({ translation: e.target.value || null })}>
-                  <option value="">{t("none")}</option>
-                  {config.translation && translations.length && !translations.some((x) => x.id === config.translation) ? (
-                    <option value={config.translation}>{config.translation}</option>
-                  ) : null}
-                  {groupBy(translations, (x) => languageName(x.language, lang)).map(([group, items]) => (
-                    <optgroup key={group} label={group}>
-                      {items.map((x) => (
-                        <option key={x.id} value={x.id}>
-                          {x.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </Select>
-              </Field>
-            </div>
-          )}
 
-          {panel === "mode" && (
-            <div className="choices" role="radiogroup" aria-label={t("mode")}>
-              {MODES.map((m) => {
-                const ok = canUseMode(m, caps);
-                return (
-                  <button
-                    key={m}
-                    type="button"
-                    role="radio"
-                    aria-checked={config.mode === m}
-                    disabled={!ok}
-                    className={`choice${config.mode === m ? " on" : ""}`}
-                    onClick={() => setConfig({ mode: m })}
-                  >
-                    <span className="choice-dot" aria-hidden="true" />
-                    <span className="choice-text">
-                      <strong>{t(m)}</strong>
-                      <small>{ok ? t(`${m}Hint`) : t("connectQul")}</small>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {panel === "timing" && (
-            <div className="fields">
-              <Group label={t("timing")}>
-                <Segmented
-                  value={config.timing.mode}
-                  onChange={(mode) => timing({ mode })}
-                  options={[
-                    { value: "continuous", label: t("continuous") },
-                    { value: "reading", label: t("reading") },
-                  ]}
-                />
-              </Group>
-              {config.timing.mode === "reading" ? (
-                <Group label={t("speed")}>
-                  <Segmented
-                    value={config.timing.readingSpeed}
-                    onChange={(readingSpeed) => timing({ readingSpeed })}
-                    options={[
-                      { value: "fast", label: t("fast") },
-                      { value: "slow", label: t("slow") },
-                      { value: "verySlow", label: t("verySlow") },
-                    ]}
-                  />
-                </Group>
-              ) : null}
-              {selectedRef ? (
-                <Field
-                  label={
-                    multiSurah
-                      ? `${surahTitle(surahs, selectedRef[0], lang)} · ${t("holdAyah", { n: selectedRef[1] })}`
-                      : t("holdAyah", { n: selectedRef[1] })
-                  }
-                >
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    step={0.5}
-                    value={holdOverride(config.timing, selectedRef[0], selectedRef[1], config.surah) ?? ""}
-                    onChange={(e) => {
-                      const v = e.target.value === "" ? undefined : Number(e.target.value);
-                      const ayahOverrides = { ...config.timing.ayahOverrides };
-                      if (selectedRef[0] === config.surah) delete ayahOverrides[String(selectedRef[1])];
-                      if (v == null || Number.isNaN(v)) delete ayahOverrides[selectedAyah!];
-                      else ayahOverrides[selectedAyah!] = { holdSeconds: v };
-                      timing({ ayahOverrides });
-                    }}
-                  />
-                </Field>
-              ) : (
-                <p className="hint-box">{t("selectAyahHint")}</p>
-              )}
-            </div>
-          )}
-
-          {panel === "style" && (
-            <div className="fields">
-              <Group label={t("theme")}>
+              <Section title={t("pageLook")}>
                 <Segmented
                   value={config.style.theme}
                   onChange={(theme) => style({ theme })}
@@ -507,55 +653,55 @@ export function Editor() {
                     { value: "dark", label: t("dark") },
                   ]}
                 />
-              </Group>
-              <div className="swatches">
-                {(
-                  [
-                    ["primaryColor", t("primaryColor")],
-                    ["accentColor", t("accentColor")],
-                    ["cardColor", t("cardColor")],
-                  ] as const
-                ).map(([k, label]) => (
-                  <label key={k} className="swatch">
-                    <input type="color" value={config.style[k]} onChange={(e) => style({ [k]: e.target.value })} />
-                    <span>{label}</span>
-                  </label>
-                ))}
-              </div>
-              {isMushafMode(config.mode) ? (
-                <>
-                  <Group label={t("mushafPaper")}>
-                    <Segmented
-                      value={config.style.mushafPaper}
-                      onChange={(mushafPaper) => style({ mushafPaper })}
-                      options={PAPERS.map((value) => ({ value, label: t(`paper_${value}`) }))}
-                    />
-                  </Group>
-                  <Group label={t("mushafFrame")}>
-                    <Segmented
-                      value={config.style.mushafFrame}
-                      onChange={(mushafFrame) => style({ mushafFrame })}
-                      options={FRAMES.map((value) => ({ value, label: t(`frame_${value}`) }))}
-                    />
-                  </Group>
-                </>
-              ) : null}
-              <Slider label={t("fontSize")} min={32} max={120} value={config.style.fontSize} onChange={(fontSize) => style({ fontSize })} />
-              <div className="switches">
-                <Switch label={t("tajweedColors")} checked={config.style.tajweed} onChange={(tajweed) => style({ tajweed })} />
-                <Switch label={t("watermark")} checked={config.style.showWatermark} onChange={(showWatermark) => style({ showWatermark })} />
-                {selectedBg?.type === "image" || selectedBg?.type === "video" ? (
-                  <Switch label={t("mediaPanel")} checked={config.style.mediaPanel} onChange={(mediaPanel) => style({ mediaPanel })} />
+                <Group label={t("mushafPaper")}>
+                  <Segmented
+                    value={config.style.mushafPaper}
+                    onChange={(mushafPaper) => style({ mushafPaper })}
+                    options={PAPERS.map((value) => ({ value, label: t(`paper_${value}`) }))}
+                  />
+                </Group>
+                <Group label={t("mushafFrame")}>
+                  <Segmented
+                    value={config.style.mushafFrame}
+                    onChange={(mushafFrame) => style({ mushafFrame })}
+                    options={FRAMES.map((value) => ({ value, label: t(`frame_${value}`) }))}
+                  />
+                </Group>
+              </Section>
+
+              <Section title={t("ayat")}>
+                {isMushafMode(config.mode) ? (
+                  <p className="field-hint">{t("fontSizeMushafHint")}</p>
+                ) : (
+                  <Slider label={t("fontSize")} min={32} max={120} value={config.style.fontSize} onChange={(fontSize) => style({ fontSize })} />
+                )}
+                <div className="switches">
+                  <Switch label={t("tajweedColors")} checked={config.style.tajweed} onChange={(tajweed) => style({ tajweed })} />
+                  <Switch label={t("watermark")} checked={config.style.showWatermark} onChange={(showWatermark) => style({ showWatermark })} />
+                </div>
+                {config.style.showWatermark ? (
+                  <Field label={t("watermarkText")}>
+                    <input value={config.style.watermarkText} maxLength={60} onChange={(e) => style({ watermarkText: e.target.value })} />
+                  </Field>
                 ) : null}
-              </div>
-              {config.style.showWatermark ? (
-                <Field label={t("watermarkText")}>
-                  <input value={config.style.watermarkText} maxLength={60} onChange={(e) => style({ watermarkText: e.target.value })} />
-                </Field>
-              ) : null}
-              <Group label={t("exportFormat")}>
-                <Segmented value={config.export} onChange={(v) => setConfig({ export: v })} options={EXPORTS} />
-              </Group>
+              </Section>
+
+              <Section title={t("colors")}>
+                <div className="swatches">
+                  {(
+                    [
+                      ["primaryColor", t("primaryColor")],
+                      ["accentColor", t("accentColor")],
+                      ["cardColor", t("cardColor")],
+                    ] as const
+                  ).map(([k, label]) => (
+                    <label key={k} className="swatch">
+                      <input type="color" value={config.style[k]} onChange={(e) => style({ [k]: e.target.value })} />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </Section>
             </div>
           )}
 
@@ -649,57 +795,11 @@ export function Editor() {
                   {t("gradient")}
                 </button>
               </div>
-            </div>
-          )}
-
-          {panel === "audio" && (
-            <div className="fields">
-              <Slider
-                label={t("recitationVolume")}
-                min={0}
-                max={1}
-                step={0.05}
-                value={config.audio.recitationVolume}
-                display={percent(config.audio.recitationVolume)}
-                onChange={(recitationVolume) => audio({ recitationVolume })}
-              />
-              <Field label={t("ambience")}>
-                <Select value={config.audio.ambienceId ?? ""} onChange={(e) => audio({ ambienceId: e.target.value || null })}>
-                  <option value="">{t("none")}</option>
-                  {AMBIENCE_PRESETS.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {lang === "ar" ? a.nameAr : a.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Slider
-                label={t("ambienceVolume")}
-                min={0}
-                max={1}
-                step={0.05}
-                disabled={!config.audio.ambienceId}
-                value={config.audio.ambienceVolume}
-                display={percent(config.audio.ambienceVolume)}
-                onChange={(ambienceVolume) => audio({ ambienceVolume })}
-              />
-              <div className="switches">
-                <Switch
-                  label={t("bgSound")}
-                  checked={config.audio.backgroundVideoSound}
-                  onChange={(backgroundVideoSound) => audio({ backgroundVideoSound })}
-                />
-              </div>
-              <Slider
-                label={t("bgVolume")}
-                min={0}
-                max={1}
-                step={0.05}
-                disabled={!config.audio.backgroundVideoSound}
-                value={config.audio.backgroundVideoVolume}
-                display={percent(config.audio.backgroundVideoVolume)}
-                onChange={(backgroundVideoVolume) => audio({ backgroundVideoVolume })}
-              />
+              {selectedBg?.type === "image" || selectedBg?.type === "video" ? (
+                <div className="switches">
+                  <Switch label={t("mediaPanel")} checked={config.style.mediaPanel} onChange={(mediaPanel) => style({ mediaPanel })} />
+                </div>
+              ) : null}
             </div>
           )}
         </div>
@@ -734,16 +834,17 @@ export function Editor() {
                 </span>
               </>
             ) : (
-              <span className="project-name" title={name}>
-                {status ?? (
-                  <>
-                    {division ? <strong>{division} </strong> : null}
-                    <bdi dir={lang === "ar" ? "rtl" : "ltr"}>{rangeText(config, surahs, lang)}</bdi>
-                    <span className="project-sub">
-                      {t(config.mode)} · {config.aspectRatio}
-                    </span>
-                  </>
-                )}
+              <span className="project-name" title={missing.surah ? undefined : name}>
+                {status ??
+                  (missing.surah ? (
+                    <span className="project-sub">{t("startTitle")}</span>
+                  ) : (
+                    <>
+                      {division ? <strong>{division} </strong> : null}
+                      <bdi dir={lang === "ar" ? "rtl" : "ltr"}>{rangeText(config, surahs, lang)}</bdi>
+                      <span className="project-sub">{missing.reciter ? t("needReciter") : `${t(config.mode)} · ${config.aspectRatio}`}</span>
+                    </>
+                  ))}
               </span>
             )}
           </div>
@@ -756,16 +857,27 @@ export function Editor() {
               type="button"
               className="btn btn-quiet"
               aria-label={t("saveProject")}
-              onClick={() => void saveProject().catch((e: Error) => setError(e.message))}>
+              disabled={!ready}
+              onClick={() => void saveProject().catch((e: Error) => setError(e.message))}
+            >
               <Icon name="save" size={18} />
               <span className="hide-xs">{t("saveProject")}</span>
             </button>
           )}
+          <span className="select export-select">
+            <select aria-label={t("exportFormat")} value={config.export} onChange={(e) => setConfig({ export: e.target.value as VideoConfig["export"] })}>
+              {EXPORTS.map((x) => (
+                <option key={x.value} value={x.value}>
+                  {x.label}
+                </option>
+              ))}
+            </select>
+          </span>
           <button
             type="button"
             className="btn btn-primary"
             onClick={() => void generate().catch((e: Error) => setError(e.message))}
-            disabled={!preview || Boolean(rendering)}
+            disabled={!ready || Boolean(rendering)}
           >
             {t("generate")}
           </button>

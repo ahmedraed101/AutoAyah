@@ -80,7 +80,7 @@ export function buildTimeline(config: VideoConfig, clip: ResolvedClip): Timeline
   if (isMushafMode(config.mode) && clip.ayat.some((a) => !a.page)) {
     warnings.push("Mushaf page data is missing for some ayat. Those slides use Ayah + Tafsir.");
   }
-  if (config.mode === "wordHighlight" || config.mode === "mushafWords") {
+  if (!clip.draft && (config.mode === "wordHighlight" || config.mode === "mushafWords")) {
     const missing = clip.ayat.filter((a) => !a.wordTimings?.length).length;
     if (missing) {
       warnings.push(`${missing} ayah(s) lack word timings for this reciter. Highlight timing is estimated from word length.`);

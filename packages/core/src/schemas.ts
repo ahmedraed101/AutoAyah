@@ -254,6 +254,8 @@ export const ResolvedClipSchema = z.object({
   surahNames: z.record(z.string(), z.string()).optional(),
   ayat: z.array(ResolvedAyahSchema),
   mushafPages: z.array(MushafPageSchema).optional(),
+  /** Text-only clip: no audio or word timings, ayah lengths are estimates. */
+  draft: z.boolean().optional(),
 });
 
 export type ResolvedClip = z.infer<typeof ResolvedClipSchema>;

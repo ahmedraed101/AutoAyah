@@ -96,20 +96,32 @@ type Layout = {
   bannerHeight: number;
   gap: number;
   watermarkHeight: number;
+  /** Content width inside the margins and the photo panel. */
+  innerWidth: number;
+  /** Vertical padding of the photo panel, 0 without one. */
+  panelY: number;
+  /** Gap between side-by-side columns. */
+  columnGap: number;
 };
 
-function layoutFor(width: number, height: number): Layout {
+function layoutFor(width: number, height: number, overMedia = false): Layout {
   const u = Math.min(width, height) / 1080;
   const landscape = width > height * 1.2;
   const padX = landscape ? width * 0.06 : width * 0.045;
   const padY = height * (landscape ? 0.07 : 0.05);
-  const columnWidth = landscape ? (width - padX * 2 - 60 * u) / 2 : width - padX * 2;
+  const panel = overMedia ? panelPad(u) : { x: 0, y: 0 };
+  const innerWidth = width - padX * 2 - panel.x * 2;
+  const columnGap = 60 * u;
+  const columnWidth = landscape ? (innerWidth - columnGap) / 2 : innerWidth;
   const bannerWidth = Math.min(columnWidth, 1000 * u);
   return {
     u,
     landscape,
     padX,
     padY,
+    innerWidth,
+    panelY: panel.y,
+    columnGap,
     columnWidth,
     bannerWidth,
     bannerHeight: bannerWidth * 0.14,
@@ -119,59 +131,6 @@ function layoutFor(width: number, height: number): Layout {
 }
 
 // ---------- pieces ----------
-
-/** Ornamental surah header: green frame, floral band, cartouche with the surah name. */
-export function SurahBanner({ name, width, p }: { name: string; width: number; p: Palette }) {
-  const height = width * 0.14;
-  const id = `rosette-${p.primary.replace("#", "")}`;
-  return (
-    <div style={{ position: "relative", width, height, flexShrink: 0, alignSelf: "center" }}>
-      <svg viewBox="0 0 1000 140" width={width} height={height} style={{ position: "absolute", inset: 0 }}>
-        <defs>
-          <pattern id={id} width="46" height="46" patternUnits="userSpaceOnUse" x="9" y="9">
-            <rect width="46" height="46" fill="#eef5e8" />
-            <path d="M23 0 L46 23 L23 46 L0 23Z" fill="none" stroke={p.primary} strokeWidth="1.6" opacity="0.75" />
-            {[0, 46].flatMap((x) =>
-              [0, 46].map((y) => (
-                <g key={`${x}-${y}`} transform={`translate(${x} ${y})`}>
-                  {[0, 90, 180, 270].map((r) => (
-                    <ellipse key={r} cx="0" cy="-6" rx="3.2" ry="6.5" fill={p.primary} transform={`rotate(${r + 45})`} />
-                  ))}
-                </g>
-              )),
-            )}
-            <g transform="translate(23 23)">
-              {[0, 45, 90, 135, 180, 225, 270, 315].map((r) => (
-                <ellipse key={r} cx="0" cy="-7" rx="3.6" ry="6.8" fill="#de8aa6" stroke="#b25a7c" strokeWidth="0.7" transform={`rotate(${r})`} />
-              ))}
-              <circle r="3.6" fill="#f0c75a" stroke="#b58a1e" strokeWidth="0.6" />
-            </g>
-          </pattern>
-        </defs>
-        <rect x="2.5" y="2.5" width="995" height="135" fill={`url(#${id})`} stroke={p.primary} strokeWidth="5" />
-        <rect x="9" y="9" width="982" height="122" fill="none" stroke="#c9a94f" strokeWidth="2" />
-        <rect x="270" y="17" width="460" height="106" rx="53" fill={p.bannerFill} stroke={p.primary} strokeWidth="4" />
-        <rect x="278" y="25" width="444" height="90" rx="45" fill="none" stroke="#c9a94f" strokeWidth="1.6" />
-      </svg>
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontFamily: QURAN_FONT,
-          fontSize: height * 0.36,
-          color: p.bannerText,
-          direction: "rtl",
-          paddingBottom: height * 0.04,
-        }}
-      >
-        {name}
-      </div>
-    </div>
-  );
-}
 
 /** Ornamental end-of-ayah medallion with the ayah number. */
 export function AyahMarker({ n, color }: { n: number; color: string }) {
@@ -294,57 +253,7 @@ function Frame({
 
 // ---------- slides ----------
 
-function AyahColumn({
-  props,
-  l,
-  p,
-  maxHeight,
-  base,
-}: {
-  props: SlideProps;
-  l: Layout;
-  p: Palette;
-  maxHeight: number;
-  base: number;
-}) {
-  const { slide, style, basmala, translationName } = props;
-  const translation = slide.ayah.translation;
-  const transSize = 30 * l.u;
-  const transHeight = translation ? Math.ceil((translation.length * 0.5 * transSize) / l.columnWidth) * transSize * 1.5 : 0;
-  const basmalaHeight = basmala ? base * 0.8 * 2 : 0;
-  const size = fitFontSize(slide.ayah.text.length, l.columnWidth, maxHeight - transHeight - basmalaHeight, base, 2, QURAN_CHAR_EM);
-  return (
-    <>
-      {basmala ? (
-        <div style={{ fontFamily: QURAN_FONT, fontSize: size * 0.8, color: p.text, textAlign: "center", lineHeight: 1.8 }}>{basmala}</div>
-      ) : null}
-      <div
-        style={{
-          fontFamily: QURAN_FONT,
-          fontSize: size,
-          lineHeight: 2,
-          color: p.text,
-          textAlign: "justify",
-          textAlignLast: "right",
-          wordSpacing: "0.05em",
-        }}
-      >
-        <AyahText slide={slide} style={style} p={p} highlightedWordIndex={props.highlightedWordIndex} />
-      </div>
-      {translation ? (
-        <div
-          dir="auto"
-          style={{ fontFamily: `"Segoe UI", Roboto, "Noto Sans", Arial, ${UI_FONT}`, fontSize: transSize, lineHeight: 1.5, color: p.accent, textAlign: "center" }}
-        >
-          {translation}
-          {translationName ? <span style={{ opacity: 0.7, fontSize: transSize * 0.7 }}> — {translationName}</span> : null}
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-function TafsirBlock({ props, l, p, maxHeight }: { props: SlideProps; l: Layout; p: Palette; maxHeight: number }) {
+function TafsirBlock({ props, l, p, maxHeight, width = l.columnWidth }: { props: SlideProps; l: Layout; p: Palette; maxHeight: number; width?: number }) {
   const { slide, tafsirName, tafsirPageIndex = 0, tafsirOpacity = 1 } = props;
   const pages = slide.tafsirPages.length ? slide.tafsirPages : slide.ayah.tafsir ? [slide.ayah.tafsir] : [];
   if (!pages.length) return null;
@@ -352,7 +261,7 @@ function TafsirBlock({ props, l, p, maxHeight }: { props: SlideProps; l: Layout;
   const longest = Math.max(...pages.map((t) => t.length));
   const titleSize = 44 * l.u;
   const padding = 44 * l.u;
-  const textWidth = l.columnWidth - padding * 2;
+  const textWidth = width - padding * 2;
   const size = fitFontSize(longest, textWidth, maxHeight - titleSize * 1.6 - padding * 2 - l.gap, 60 * l.u, 1.75, NASKH_CHAR_EM);
   // Keep the card the same height on every page so the layout doesn't jump.
   const minHeight = pages.length > 1 ? Math.ceil((longest * NASKH_CHAR_EM * size) / textWidth) * size * 1.75 : undefined;
@@ -382,56 +291,211 @@ function TafsirBlock({ props, l, p, maxHeight }: { props: SlideProps; l: Layout;
 }
 
 function budget(l: Layout, height: number, hasWatermark: boolean) {
-  return height - l.padY * 2 - l.bannerHeight - (hasWatermark ? l.watermarkHeight + l.gap : 0) - l.gap * 2;
+  return height - l.padY * 2 - l.panelY * 2 - l.bannerHeight - (hasWatermark ? l.watermarkHeight + l.gap : 0) - l.gap * 2;
+}
+
+/** Surah title cartouche in the page's own ink, like the headers printed in the Mushaf. */
+function PageBanner({ name, width, p, ink, paper }: { name: string; width: number; p: Palette; ink: string; paper: string }) {
+  const height = width * 0.12;
+  const id = `page-banner-${p.accent.replace("#", "")}-${ink.replace("#", "")}`;
+  return (
+    <div style={{ position: "relative", width, height, flexShrink: 0, alignSelf: "center" }}>
+      <svg viewBox="0 0 1000 120" width={width} height={height} style={{ position: "absolute", inset: 0 }}>
+        <defs>
+          <pattern id={id} width="24" height="24" patternUnits="userSpaceOnUse" x="6" y="6">
+            <path d="M12 2 L22 12 L12 22 L2 12Z" fill="none" stroke={p.accent} strokeWidth="1.4" opacity="0.7" />
+            <circle cx="12" cy="12" r="2.2" fill={p.accent} opacity="0.8" />
+          </pattern>
+        </defs>
+        <rect x="3" y="3" width="994" height="114" rx="6" fill={`url(#${id})`} stroke={p.accent} strokeWidth="4" />
+        <rect x="11" y="11" width="978" height="98" rx="3" fill="none" stroke={ink} strokeOpacity="0.35" strokeWidth="1.5" />
+        <path d="M300 60 Q300 18 360 18 H640 Q700 18 700 60 Q700 102 640 102 H360 Q300 102 300 60Z" fill={paper} stroke={p.accent} strokeWidth="4" />
+        <path d="M314 60 Q314 28 364 28 H636 Q686 28 686 60 Q686 92 636 92 H364 Q314 92 314 60Z" fill="none" stroke={ink} strokeOpacity="0.4" strokeWidth="1.5" />
+      </svg>
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontFamily: QURAN_FONT,
+          fontSize: height * 0.4,
+          color: ink,
+          direction: "rtl",
+          paddingBottom: height * 0.06,
+        }}
+      >
+        {name}
+      </div>
+    </div>
+  );
+}
+
+/** Running header shared by every page: surah name on the right, page number on the left. */
+function PageHeader({ surahName, page, size, color, inset }: { surahName: string; page?: number; size: number; color: string; inset: number }) {
+  return (
+    <div
+      dir="rtl"
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        fontFamily: UI_FONT,
+        fontWeight: 700,
+        fontSize: size,
+        lineHeight: `${size * 1.9}px`,
+        color,
+        paddingInline: inset,
+        flexShrink: 0,
+      }}
+    >
+      <span>{surahName}</span>
+      <span>{page ? toArabicDigits(page) : ""}</span>
+    </div>
+  );
+}
+
+/** The ayah set on a Mushaf-style page: same paper, frame and running header as the page view. */
+function AyahPage({ props, p, width, height, base }: { props: SlideProps; p: Palette; width: number; height: number; base: number }) {
+  const { slide, style, basmala, translationName, surahName } = props;
+  const paper = paperOf(style);
+  const ink: Palette = { ...p, text: paper.ink };
+  const frameKind = style.mushafFrame ?? "classic";
+  const frame = Math.max(6, width * 0.025);
+  const headerSize = Math.max(14, width * 0.03);
+  const padX = width * 0.055;
+  const inner = width - frame * 2 - padX * 2;
+  const bannerWidth = Math.min(inner, 900 * (width / 1000));
+  const translation = slide.ayah.translation;
+  const transSize = Math.max(14, width * 0.028);
+  const transHeight = translation ? (Math.ceil((translation.length * 0.5 * transSize) / inner) * 1.5 + 1.2) * transSize : 0;
+  const room = height - headerSize * 1.9 - frame * 2 - headerSize * 2 - transHeight;
+  // On short pages the running header already names the surah; keep at least two lines for the ayah.
+  const bannerHeight = bannerWidth * 0.12 + headerSize;
+  const opening = (Boolean(basmala) || slide.ayah.number === 1) && room - bannerHeight >= base * 4;
+  const bodyHeight = room - (opening ? bannerHeight : 0);
+  // The basmala line scales with the ayah, so size once with it at full size, then again at the fitted size.
+  const fit = (basmalaSize: number) =>
+    fitFontSize(slide.ayah.text.length, inner, bodyHeight - (basmala ? basmalaSize * 1.44 + headerSize : 0), base, 2, QURAN_CHAR_EM);
+  const size = fit(fit(base));
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        alignSelf: "center",
+        width,
+        height,
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        padding: `0 ${frame}px ${frame}px`,
+        ...frameStyle(frameKind, frame, p, paper.bg),
+      }}
+    >
+      {frameKind === "ornate" ? <OrnateCorners size={frame * 2.6} p={p} /> : null}
+      <PageHeader surahName={surahName} page={slide.ayah.page} size={headerSize} color={p.accent} inset={frameKind === "ornate" ? frame * 1.3 : 0} />
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          gap: headerSize,
+          padding: `${headerSize}px ${padX}px`,
+          overflow: "hidden",
+        }}
+      >
+        {opening ? <PageBanner name={surahName} width={bannerWidth} p={p} ink={paper.ink} paper={paper.bg} /> : null}
+        {basmala ? (
+          <div style={{ fontFamily: QURAN_FONT, fontSize: size * 0.8, color: paper.ink, textAlign: "center", lineHeight: 1.8 }}>{basmala}</div>
+        ) : null}
+        <div
+          style={{
+            fontFamily: QURAN_FONT,
+            fontSize: size,
+            lineHeight: 2,
+            color: paper.ink,
+            textAlign: "justify",
+            textAlignLast: "center",
+            wordSpacing: "0.05em",
+          }}
+        >
+          <AyahText slide={slide} style={style} p={ink} highlightedWordIndex={props.highlightedWordIndex} />
+        </div>
+        {translation ? (
+          <div
+            dir="auto"
+            style={{
+              borderTop: `1px solid ${p.accent}55`,
+              paddingTop: transSize * 0.8,
+              fontFamily: `"Segoe UI", Roboto, "Noto Sans", Arial, ${UI_FONT}`,
+              fontSize: transSize,
+              lineHeight: 1.5,
+              color: paper.ink,
+              opacity: 0.8,
+              textAlign: "center",
+            }}
+          >
+            {translation}
+            {translationName ? <span style={{ opacity: 0.7, fontSize: transSize * 0.7 }}> — {translationName}</span> : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 export function AyahSlide(props: SlideProps) {
-  const { style, width, height, surahName, overMedia } = props;
-  const p = palette(style);
-  const l = layoutFor(width, height);
-  const available = budget(l, height, style.showWatermark);
-  return (
-    <Frame p={p} l={l} overMedia={overMedia}>
-      <SurahBanner name={surahName} width={l.bannerWidth} p={p} />
-      <AyahColumn props={props} l={{ ...l, columnWidth: l.landscape ? l.bannerWidth : l.columnWidth }} p={p} maxHeight={available} base={style.fontSize * 1.15 * l.u} />
-      {style.showWatermark ? <Watermark text={style.watermarkText} p={p} u={l.u} /> : null}
-    </Frame>
-  );
+  return <AyahTafsirSlide {...props} withTafsir={false} />;
 }
 
 export const WordHighlightSlide = AyahSlide;
 
-export function AyahTafsirSlide(props: SlideProps) {
-  const { style, width, height, surahName, overMedia, slide } = props;
-  const p = palette(style);
-  const l = layoutFor(width, height);
-  const hasTafsir = Boolean(slide.tafsirPages.length || slide.ayah.tafsir);
-  const available = budget(l, height, style.showWatermark);
+const clamp = (min: number, max: number, v: number) => Math.min(max, Math.max(min, v));
 
-  if (l.landscape && hasTafsir) {
+/** Share of the canvas the ayah takes next to tafsir: a larger font gives the ayah more room. */
+const ayahShareFor = (style: StyleConfig, base: number) => clamp(base - 0.15, base + 0.15, base * (style.fontSize / 64));
+
+/** Square and wider canvases put tafsir beside the ayah; stacked, both get too short to read. */
+const sideBySide = (l: Layout, width: number, height: number, hasTafsir: boolean) => l.landscape || (hasTafsir && width >= height);
+
+export function AyahTafsirSlide({ withTafsir = true, ...props }: SlideProps & { withTafsir?: boolean }) {
+  const { style, width, height, overMedia, slide } = props;
+  const p = palette(style);
+  const l = layoutFor(width, height, overMedia);
+  const hasTafsir = withTafsir && Boolean(slide.tafsirPages.length || slide.ayah.tafsir);
+  // The page carries its own header, so the banner's share of the height goes to the page.
+  const available = budget(l, height, style.showWatermark) + l.bannerHeight + l.gap;
+  const base = style.fontSize * l.u * (hasTafsir ? 1 : 1.25);
+  const watermark = style.showWatermark ? <Watermark text={style.watermarkText} p={p} u={l.u} /> : null;
+
+  if (sideBySide(l, width, height, hasTafsir)) {
+    const row = l.innerWidth - (hasTafsir ? l.columnGap : 0);
+    const pageWidth = hasTafsir ? row * ayahShareFor(style, 0.5) : Math.min(row, available * 1.35);
+    const tafsirWidth = row - pageWidth;
     return (
       <Frame p={p} l={l} overMedia={overMedia}>
-        <div style={{ display: "flex", flexDirection: "row", gap: 60 * l.u, alignItems: "center" }}>
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: l.gap }}>
-            <SurahBanner name={surahName} width={l.columnWidth} p={p} />
-            <AyahColumn props={props} l={l} p={p} maxHeight={available} base={style.fontSize * l.u} />
-          </div>
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: l.gap }}>
-            <TafsirBlock props={props} l={l} p={p} maxHeight={available + l.bannerHeight} />
-          </div>
+        <div style={{ display: "flex", flexDirection: "row", gap: l.columnGap, alignItems: "center", justifyContent: "center" }}>
+          <AyahPage props={props} p={p} width={pageWidth} height={available} base={base} />
+          {hasTafsir ? (
+            <div style={{ width: tafsirWidth, minWidth: 0, display: "flex", flexDirection: "column", gap: l.gap }}>
+              <TafsirBlock props={props} l={l} p={p} width={tafsirWidth} maxHeight={available} />
+            </div>
+          ) : null}
         </div>
-        {style.showWatermark ? <Watermark text={style.watermarkText} p={p} u={l.u} /> : null}
+        {watermark}
       </Frame>
     );
   }
 
-  const ayahShare = hasTafsir ? 0.4 : 1;
+  const ayahShare = hasTafsir ? ayahShareFor(style, 0.45) : 1;
   return (
     <Frame p={p} l={l} overMedia={overMedia}>
-      <SurahBanner name={surahName} width={l.bannerWidth} p={p} />
-      <AyahColumn props={props} l={l} p={p} maxHeight={available * ayahShare} base={style.fontSize * (hasTafsir ? 0.9 : 1.15) * l.u} />
+      <AyahPage props={props} p={p} width={l.columnWidth} height={available * ayahShare - (hasTafsir ? l.gap : 0)} base={base} />
       {hasTafsir ? <TafsirBlock props={props} l={l} p={p} maxHeight={available * (1 - ayahShare)} /> : null}
-      {style.showWatermark ? <Watermark text={style.watermarkText} p={p} u={l.u} /> : null}
+      {watermark}
     </Frame>
   );
 }
@@ -496,51 +560,39 @@ function MushafPageBlock({ props, p, width, maxHeight }: { props: SlideProps; p:
   const pageWidth = Math.min(width, widest * MUSHAF_CHAR_EM * size * 1.08 + padX * 2);
   // Short decorated opening pages and surah endings are centered rather than stretched.
   const centered = (line: AyahLine) => mushafPage.page <= 2 || lineChars(line) < widest * 0.72;
+  const paper = paperOf(style);
+  const ink: Palette = { ...p, text: paper.ink };
+  const frameKind = style.mushafFrame ?? "classic";
+  const frame = size * 0.3;
 
   return (
     <div
       style={{
+        position: "relative",
         width: pageWidth,
+        boxSizing: "border-box",
         alignSelf: "center",
-        border: `${Math.max(1, size * 0.05)}px solid ${p.primary}66`,
-        outline: `${Math.max(1, size * 0.02)}px solid ${p.accent}55`,
-        outlineOffset: -size * 0.16,
-        borderRadius: size * 0.3,
-        padding: `${size * 0.3}px ${padX}px`,
+        padding: `0 ${padX}px ${frame}px`,
         fontFamily: QURAN_FONT,
         fontSize: size,
         lineHeight,
+        ...frameStyle(frameKind, frame, p, paper.bg),
       }}
     >
-      <div
-        dir="rtl"
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          fontFamily: UI_FONT,
-          fontWeight: 700,
-          fontSize: size * 0.62,
-          lineHeight: `${rowHeight}px`,
-          color: p.accent,
-          borderBottom: `1px solid ${p.accent}44`,
-          marginBottom: size * 0.15,
-        }}
-      >
-        <span>{pageSurahName(mushafPage, props.surahName)}</span>
-        <span>{toArabicDigits(mushafPage.page)}</span>
-      </div>
+      {frameKind === "ornate" ? <OrnateCorners size={frame * 2.6} p={p} /> : null}
+      <PageHeader surahName={pageSurahName(mushafPage, props.surahName)} page={mushafPage.page} size={size * 0.62} color={p.accent} inset={0} />
       {mushafPage.lines.map((line) => {
-        if (line.kind === "ayah") return <MushafAyahLine key={line.line} line={line} currentKey={currentKey} p={p} centered={centered(line)} />;
+        if (line.kind === "ayah") return <MushafAyahLine key={line.line} line={line} currentKey={currentKey} p={ink} centered={centered(line)} />;
         if (line.kind === "surah") {
-          const bannerWidth = Math.min(pageWidth - padX * 2, (rowHeight * 0.92) / 0.14);
+          const bannerWidth = Math.min(pageWidth - padX * 2, (rowHeight * 0.92) / 0.12);
           return (
             <div key={line.line} style={{ height: rowHeight, display: "flex", alignItems: "center", justifyContent: "center", opacity: line.surah === surah ? 1 : 0.5 }}>
-              <SurahBanner name={mushafPage.surahNames[line.surah] ?? ""} width={bannerWidth} p={p} />
+              <PageBanner name={mushafPage.surahNames[line.surah] ?? ""} width={bannerWidth} p={p} ink={paper.ink} paper={paper.bg} />
             </div>
           );
         }
         return (
-          <div key={line.line} dir="rtl" style={{ textAlign: "center", color: p.text, opacity: line.surah === surah ? 0.9 : 0.38 }}>
+          <div key={line.line} dir="rtl" style={{ textAlign: "center", color: paper.ink, opacity: line.surah === surah ? 0.9 : 0.38 }}>
             {mushafPage.basmala ?? ""}
           </div>
         );
@@ -557,6 +609,9 @@ const PAPERS = {
   mint: { bg: "#eef6ee", ink: "#14301f" },
   night: { bg: "#14120e", ink: "#ece6d8" },
 } as const;
+
+const paperOf = (style: StyleConfig) =>
+  PAPERS[style.mushafPaper === "auto" || !style.mushafPaper ? (style.theme === "dark" ? "night" : "ivory") : style.mushafPaper];
 
 type FrameKind = NonNullable<StyleConfig["mushafFrame"]>;
 
@@ -614,33 +669,49 @@ function OrnateCorners({ size, p }: { size: number; p: Palette }) {
 }
 
 /** The scanned printed page; everything except the current ayah is softly veiled (all of it when `dimmed`). */
-function MushafScan({ props, p, width, maxHeight, dimmed }: { props: SlideProps; p: Palette; width: number; maxHeight: number; dimmed?: boolean }) {
-  const { mushafPage, surah, slide, style, surahName } = props;
-  const image = mushafPage?.image;
-  if (!mushafPage || !image) return null;
+type ScannedPage = NonNullable<SlideProps["mushafPage"]> & { image: NonNullable<NonNullable<SlideProps["mushafPage"]>["image"]> };
+
+/** Size of a scanned page drawn inside a `width` × `maxHeight` box (frame and header included). */
+function scanBox(page: ScannedPage, width: number, maxHeight: number) {
+  const { image } = page;
   const headerSize = Math.max(14, width * 0.03);
   const headerHeight = headerSize * 1.9;
   const frame = Math.max(6, width * 0.025);
   // The two opening pages are short; crop the empty space below their text.
-  const allBoxes = Object.values(mushafPage.boxes ?? {}).flat();
+  const allBoxes = Object.values(page.boxes ?? {}).flat();
   const visibleHeight =
-    mushafPage.page <= 2 && allBoxes.length ? Math.min(image.height, Math.max(...allBoxes.map(([, y, , bh]) => y + bh)) + 60) : image.height;
+    page.page <= 2 && allBoxes.length ? Math.min(image.height, Math.max(...allBoxes.map(([, y, , bh]) => y + bh)) + 60) : image.height;
   const scale = Math.min((width - frame * 2) / image.width, (maxHeight - headerHeight - frame * 2) / visibleHeight);
-  const w = image.width * scale;
-  const h = visibleHeight * scale;
+  return { headerSize, frame, scale, w: image.width * scale, h: visibleHeight * scale, outerWidth: image.width * scale + frame * 2 };
+}
+
+function MushafScan({ props, p, width, maxHeight, dimmed }: { props: SlideProps; p: Palette; width: number; maxHeight: number; dimmed?: boolean }) {
+  const { mushafPage, surah, slide, style, surahName } = props;
+  const image = mushafPage?.image;
+  if (!mushafPage || !image) return null;
+  const { headerSize, frame, scale, w, h, outerWidth } = scanBox({ ...mushafPage, image }, width, maxHeight);
   const pad = 10;
   const current = (mushafPage.boxes?.[`${surah}:${slide.ayah.number}`] ?? []).map(
     ([x, y, bw, bh]) => [x - pad, y - pad * 0.6, bw + pad * 2, bh + pad * 1.2] as const,
   );
   const maskId = `ayah-mask-${mushafPage.page}-${slide.ayah.number}`;
-  const paper = PAPERS[style.mushafPaper === "auto" || !style.mushafPaper ? (style.theme === "dark" ? "night" : "ivory") : style.mushafPaper];
+  const paper = paperOf(style);
   const inkId = `mushaf-ink-${paper.ink.replace("#", "")}`;
   const wordBoxes = mushafPage.words?.[`${surah}:${slide.ayah.number}`] ?? [];
   const word = (props.highlightedWordIndex ?? -1) >= 0 ? wordBoxes[Math.min(props.highlightedWordIndex!, wordBoxes.length - 1)] : undefined;
   const frameKind = style.mushafFrame ?? "classic";
 
   return (
-    <div style={{ position: "relative", alignSelf: "center", padding: `0 ${frame}px ${frame}px`, ...frameStyle(frameKind, frame, p, paper.bg) }}>
+    <div
+      style={{
+        position: "relative",
+        alignSelf: "center",
+        boxSizing: "border-box",
+        width: outerWidth,
+        padding: `0 ${frame}px ${frame}px`,
+        ...frameStyle(frameKind, frame, p, paper.bg),
+      }}
+    >
       {frameKind === "ornate" ? <OrnateCorners size={frame * 2.6} p={p} /> : null}
       <svg width={0} height={0} style={{ position: "absolute" }} aria-hidden="true">
         <filter id={inkId} colorInterpolationFilters="sRGB">
@@ -648,22 +719,13 @@ function MushafScan({ props, p, width, maxHeight, dimmed }: { props: SlideProps;
           <feComposite in2="SourceAlpha" operator="in" />
         </filter>
       </svg>
-      <div
-        dir="rtl"
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          fontFamily: UI_FONT,
-          fontWeight: 700,
-          fontSize: headerSize,
-          lineHeight: `${headerHeight}px`,
-          color: p.accent,
-          paddingInline: frameKind === "ornate" ? frame * 1.3 : 0,
-        }}
-      >
-        <span>{pageSurahName(mushafPage, surahName)}</span>
-        <span>{toArabicDigits(mushafPage.page)}</span>
-      </div>
+      <PageHeader
+        surahName={pageSurahName(mushafPage, surahName)}
+        page={mushafPage.page}
+        size={headerSize}
+        color={p.accent}
+        inset={frameKind === "ornate" ? frame * 1.3 : 0}
+      />
       <div style={{ position: "relative", width: w, height: h, overflow: "hidden" }}>
         <Img src={image.url} style={{ width: w, height: image.height * scale, display: "block", filter: `url(#${inkId})` }} />
         {current.length || dimmed ? (
@@ -702,14 +764,17 @@ function MushafScan({ props, p, width, maxHeight, dimmed }: { props: SlideProps;
 }
 
 export function MushafPageSlide(props: SlideProps) {
-  const { style, width, height, surahName, slide, mushafPage, overMedia } = props;
+  const { style, width, height, slide, mushafPage, overMedia } = props;
   const p = palette(style);
-  const l = layoutFor(width, height);
+  const l = layoutFor(width, height, overMedia);
   if (!mushafPage) return <AyahTafsirSlide {...props} />;
 
   const hasTafsir = Boolean(slide.tafsirPages.length || slide.ayah.tafsir);
   // The page carries its own running header (surah name, page number), so no separate banner is needed.
   const available = budget(l, height, style.showWatermark) + l.bannerHeight + l.gap;
+  const watermark = style.showWatermark ? <Watermark text={style.watermarkText} p={p} u={l.u} /> : null;
+  const page = (w: number, h: number) =>
+    mushafPage.image ? <MushafScan props={props} p={p} width={w} maxHeight={h} /> : <MushafPageBlock props={props} p={p} width={w} maxHeight={h} />;
 
   if (l.landscape && !hasTafsir && props.facingPage) {
     // Open book: odd pages on the right, even on the left. Pages are tall, so height limits them —
@@ -737,40 +802,37 @@ export function MushafPageSlide(props: SlideProps) {
     );
   }
 
-  if (l.landscape) {
+  if (sideBySide(l, width, height, hasTafsir)) {
+    // Full pages are tall, so height usually limits them; the tafsir takes whatever width the page leaves.
+    const row = l.innerWidth - (hasTafsir ? l.columnGap : 0);
+    const maxPage = hasTafsir ? row * 0.6 : row;
+    const pageWidth = mushafPage.image ? Math.min(maxPage, scanBox({ ...mushafPage, image: mushafPage.image }, maxPage, available).outerWidth) : maxPage;
+    const tafsirWidth = row - pageWidth;
     return (
       <Frame p={p} l={l} overMedia={overMedia}>
-        <div style={{ display: "flex", flexDirection: "row", gap: 60 * l.u, alignItems: "center" }}>
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: l.gap * 0.6 }}>
-            {mushafPage.image ? (
-              <MushafScan props={props} p={p} width={l.columnWidth} maxHeight={height - l.padY * 2} />
-            ) : (
-              <MushafPageBlock props={props} p={p} width={l.columnWidth} maxHeight={height - l.padY * 2} />
-            )}
-          </div>
-          <div style={{ flex: 1, height: available, display: "flex", flexDirection: "column", justifyContent: "center", gap: l.gap }}>
-            <SurahBanner name={surahName} width={l.columnWidth} p={p} />
-            {hasTafsir ? <TafsirBlock props={props} l={l} p={p} maxHeight={available - l.bannerHeight - l.gap} /> : null}
-          </div>
+        <div style={{ display: "flex", flexDirection: "row", gap: l.columnGap, alignItems: "center", justifyContent: "center" }}>
+          <div style={{ flex: "none", display: "flex", flexDirection: "column" }}>{page(maxPage, available)}</div>
+          {hasTafsir ? (
+            <div style={{ width: tafsirWidth, minWidth: 0, display: "flex", flexDirection: "column", gap: l.gap }}>
+              <TafsirBlock props={props} l={l} p={p} width={tafsirWidth} maxHeight={available} />
+            </div>
+          ) : null}
         </div>
-        {style.showWatermark ? <Watermark text={style.watermarkText} p={p} u={l.u} /> : null}
+        {watermark}
       </Frame>
     );
   }
 
+  const pageShare = hasTafsir ? 0.68 : 1;
   return (
     <Frame p={p} l={l} overMedia={overMedia}>
-      {mushafPage.image ? (
-        <MushafScan props={props} p={p} width={l.columnWidth} maxHeight={available * (hasTafsir ? 0.68 : 1)} />
-      ) : (
-        <MushafPageBlock props={props} p={p} width={l.columnWidth} maxHeight={available * (hasTafsir ? 0.68 : 1)} />
-      )}
+      {page(l.columnWidth, available * pageShare)}
       {hasTafsir ? (
-        <div style={{ height: available * 0.32 - l.gap, display: "flex", flexDirection: "column", gap: l.gap * 0.5, overflow: "hidden" }}>
-          <TafsirBlock props={props} l={l} p={p} maxHeight={available * 0.32 - l.gap} />
+        <div style={{ height: available * (1 - pageShare) - l.gap, display: "flex", flexDirection: "column", gap: l.gap * 0.5, overflow: "hidden" }}>
+          <TafsirBlock props={props} l={l} p={p} maxHeight={available * (1 - pageShare) - l.gap} />
         </div>
       ) : null}
-      {style.showWatermark ? <Watermark text={style.watermarkText} p={p} u={l.u} /> : null}
+      {watermark}
     </Frame>
   );
 }

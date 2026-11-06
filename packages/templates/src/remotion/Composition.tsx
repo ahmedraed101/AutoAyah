@@ -122,11 +122,13 @@ const Scene: React.FC<CompositionProps & { muted?: boolean }> = ({
 
       {muted
         ? null
-        : slides.map((slide, i) => (
-            <Sequence key={`audio-${slide.ayah.surah ?? ""}-${slide.ayah.number}-${i}`} from={slide.startFrame} durationInFrames={slide.durationInFrames}>
-              <Audio src={asset(slide.ayah.audioUrl)} volume={(f) => audio.recitationVolume * masterVolAt(slide.startFrame + f)} />
-            </Sequence>
-          ))}
+        : slides.map((slide, i) =>
+            slide.ayah.audioUrl ? (
+              <Sequence key={`audio-${slide.ayah.surah ?? ""}-${slide.ayah.number}-${i}`} from={slide.startFrame} durationInFrames={slide.durationInFrames}>
+                <Audio src={asset(slide.ayah.audioUrl)} volume={(f) => audio.recitationVolume * masterVolAt(slide.startFrame + f)} />
+              </Sequence>
+            ) : null,
+          )}
 
       {audio.ambienceId && !muted ? (
         <Audio src={asset(`/ambience/${audio.ambienceId}.wav`)} volume={(f) => audio.ambienceVolume * masterVolAt(f)} loop />

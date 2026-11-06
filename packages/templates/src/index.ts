@@ -3,5 +3,5 @@ export * from "./Background";
 export * from "./slides";
 export * from "./fonts";
 export { AutoAyahComposition } from "./remotion/Composition";
-export { frameKeys } from "./remotion/frames";
+export { frameKeys, restFrame } from "./remotion/frames";
 export { RemotionRoot } from "./remotion/Root";

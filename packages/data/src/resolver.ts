@@ -101,6 +101,9 @@ export function splitBasmala(surah: number, ayah: number, text: string): { basma
   return { text };
 }
 
+/** Rough recitation length of an ayah, for drafts that are drawn before any audio is fetched. */
+const draftSeconds = (words: number) => Math.max(3, words * 0.6);
+
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out = new Array<R>(items.length);
   let next = 0;
@@ -499,26 +502,27 @@ export function createResolver(opts: ResolveOptions): Resolver {
         const tajweed = byNumber(wantTajweed ? TAJWEED_EDITION : null);
         const tafsir = qcTafsir != null ? fromRecord(qcTafsirMap) : byNumber(config.tafsir);
         const translation = qcTranslation != null ? fromRecord(qcTranslationMap) : byNumber(config.translation);
-        const timings = wantTimings
+        const timings = wantTimings && !config.draft
           ? await wordTimings({ ...seg, reciter: config.reciter })
           : new Map<number, WordTiming[]>();
 
         const ayat: ResolvedAyah[] = await mapLimit(quran, AUDIO_CONCURRENCY, async (a) => {
           const split = splitBasmala(seg.surah, a.n, a.text);
-          const { seconds } = await getAudio(config.reciter, seg.surah, a.n);
+          const words = splitWords(split.text);
+          const { seconds } = config.draft ? { seconds: draftSeconds(words.length) } : await getAudio(config.reciter, seg.surah, a.n);
           return {
             number: a.n,
             surah: seg.surah,
             basmala: split.basmala,
             text: split.text,
             tajweed: tajweed.get(a.n)?.text,
-            words: splitWords(split.text),
+            words,
             tafsir: tafsir.get(a.n)?.text,
             translation: translation.get(a.n)?.text,
-            audioUrl: localAudioPath(config.reciter, seg.surah, a.n),
+            audioUrl: config.draft ? "" : localAudioPath(config.reciter, seg.surah, a.n),
             audioSeconds: seconds,
             wordTimings: timings.get(a.n),
-            page: isMushafMode(config.mode) ? a.page : undefined,
+            page: a.page,
           };
         });
         parts.push({ editions, ayat });
@@ -565,6 +569,7 @@ export function createResolver(opts: ResolveOptions): Resolver {
         surahNames: Object.fromEntries(segments.map((s) => [String(s.surah), surahs.find((x) => x.number === s.surah)?.name ?? ""])),
         ayat,
         mushafPages,
+        draft: config.draft || undefined,
       };
     },
   };

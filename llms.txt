@@ -13,6 +13,7 @@ Default: http://localhost:3737
 - GET /api/surahs | /api/reciters | /api/tafsirs | /api/translations
 - GET /api/divisions — start/end ayah of every juz, hizb, rub' (quarter), Mushaf page and manzil
 - POST /api/preview — body: VideoConfig → timeline + props (no render)
+- POST /api/preview?draft=1 — same, text only: no recitation audio or word timings, durations are estimates
 - POST /api/jobs — enqueue render
 - GET /api/jobs/:id
 - GET /api/jobs/:id/events — SSE progress

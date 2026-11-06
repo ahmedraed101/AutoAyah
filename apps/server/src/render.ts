@@ -55,11 +55,14 @@ export async function buildProps(
   config: VideoConfig,
   resolver: Resolver,
   limits: Limits = {},
+  draft = false,
 ): Promise<CompositionProps & { warnings: string[] }> {
-  const clip = await resolver.resolveClip(config);
+  const clip = await resolver.resolveClip({ ...config, draft });
   const timeline = buildTimeline(config, clip);
   if (limits.maxSeconds && timeline.totalSeconds > limits.maxSeconds) {
-    throw new Error(`Video would be ${Math.ceil(timeline.totalSeconds)}s; this server allows at most ${limits.maxSeconds}s`);
+    const message = `Video would be ${Math.ceil(timeline.totalSeconds)}s; this server allows at most ${limits.maxSeconds}s`;
+    if (!draft) throw new Error(message);
+    timeline.warnings.push(`${message} (estimated before the recitation is fetched)`);
   }
   return {
     timeline,

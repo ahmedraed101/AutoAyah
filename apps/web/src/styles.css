@@ -436,6 +436,22 @@ input[type="number"] {
   animation: turn 6s linear infinite;
 }
 
+.player-placeholder.start {
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.player-placeholder.start .rosette {
+  animation: none;
+}
+
+.player-placeholder.start strong {
+  color: var(--text);
+  font-size: 17px;
+}
+
 @keyframes turn {
   to {
     transform: rotate(360deg);
@@ -471,6 +487,15 @@ input[type="number"] {
 .timeline-hint {
   font-size: 12.5px;
   color: var(--muted);
+}
+
+.timeline-head .play-btn {
+  margin-inline-start: auto;
+  align-self: center;
+}
+
+.play-btn .rosette {
+  animation: turn 3s linear infinite;
 }
 
 .ayah-strip {
@@ -589,24 +614,19 @@ input[type="number"] {
 .tool-tabs {
   flex: none;
   display: flex;
-  gap: 4px;
-  padding: 10px 12px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  padding: 0 8px;
   border-bottom: 1px solid var(--line);
 }
 
-.tool-tabs::-webkit-scrollbar {
-  display: none;
-}
-
 .tool-tabs button {
-  flex: none;
-  height: 36px;
-  padding: 0 14px;
-  border-radius: 999px;
+  position: relative;
+  flex: 1 0 auto;
+  height: 48px;
+  padding: 0 8px;
   color: var(--muted);
   font-weight: 500;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .tool-tabs button:hover {
@@ -614,8 +634,18 @@ input[type="number"] {
 }
 
 .tool-tabs button.on {
-  background: var(--text);
-  color: var(--ink);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tool-tabs button.on::after {
+  content: "";
+  position: absolute;
+  inset-inline: 10px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--turq);
 }
 
 .tool-body {
@@ -660,6 +690,66 @@ input[type="number"] {
   border-radius: var(--r-md);
   color: var(--muted);
   font-size: 13.5px;
+}
+
+.tool-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.tool-section h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.views {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.views button {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 500;
+  font-size: 14px;
+  text-align: start;
+}
+
+.views button:disabled {
+  color: var(--muted);
+  border-style: dashed;
+  background: none;
+}
+
+.views button.on {
+  border-color: var(--turq);
+  background: var(--turq-soft);
+  color: var(--turq);
+  font-weight: 600;
+}
+
+.views + .field-hint {
+  margin-top: -6px;
+}
+
+.export-select select {
+  min-height: 40px;
+  width: auto;
+  font-weight: 500;
+}
+
+.export-select::after {
+  inset-inline-end: 13px;
 }
 
 .pair {
@@ -1700,8 +1790,7 @@ button.list-main:hover .surah-en {
   }
 
   .tool-tabs {
-    flex-wrap: wrap;
-    padding: 14px 16px;
+    padding: 0 12px;
   }
 
   .tool-body {

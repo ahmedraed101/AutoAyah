@@ -47,6 +47,9 @@ export const api = {
   translations: () => json<{ id: string; name: string; language: string }[]>("/api/translations"),
   preview: (config: VideoConfig, signal?: AbortSignal) =>
     json<PreviewResult>("/api/preview", { method: "POST", body: JSON.stringify(config), signal }),
+  /** Text and pages only, no recitation: fast enough to follow every edit. */
+  draft: (config: VideoConfig, signal?: AbortSignal) =>
+    json<PreviewResult>("/api/preview?draft=1", { method: "POST", body: JSON.stringify(config), signal }),
   createJob: (config: VideoConfig) => json<Job>("/api/jobs", { method: "POST", body: JSON.stringify(config) }),
   jobs: () => json<Job[]>("/api/jobs"),
   job: (id: string) => json<Job>(`/api/jobs/${id}`),
