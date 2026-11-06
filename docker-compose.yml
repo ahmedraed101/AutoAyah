@@ -1,0 +1,7 @@
+services:
+  autoayah:
+    build: .
+    ports:
+      - "3737:3737"
+    volumes:
+      - ./out:/app/out
