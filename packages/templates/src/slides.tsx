@@ -246,9 +246,32 @@ function Watermark({ text, p, u }: { text: string; p: Palette; u: number }) {
   );
 }
 
-function Frame({ p, l, overMedia, children }: { p: Palette; l: Layout; overMedia?: boolean; children: ReactNode }) {
+/** `roomy` adds side margin for content that is narrower than the frame (the two-page spread). */
+const panelPad = (u: number, roomy = false) => ({ y: 40 * u, x: (roomy ? 96 : 36) * u });
+
+function Frame({
+  p,
+  l,
+  overMedia,
+  fit,
+  children,
+}: {
+  p: Palette;
+  l: Layout;
+  overMedia?: boolean;
+  /** Shrink the panel to its content instead of spanning the full width. */
+  fit?: boolean;
+  children: ReactNode;
+}) {
+  const pad = panelPad(l.u, fit);
   const panel: CSSProperties = overMedia
-    ? { background: `${p.page}e6`, borderRadius: 36 * l.u, padding: `${40 * l.u}px ${36 * l.u}px`, boxShadow: "0 20px 60px rgba(0,0,0,0.35)" }
+    ? {
+        background: `${p.page}e6`,
+        borderRadius: 36 * l.u,
+        padding: `${pad.y}px ${pad.x}px`,
+        boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
+        ...(fit ? { alignSelf: "center" } : {}),
+      }
     : {};
   return (
     <div
@@ -689,14 +712,17 @@ export function MushafPageSlide(props: SlideProps) {
   const available = budget(l, height, style.showWatermark) + l.bannerHeight + l.gap;
 
   if (l.landscape && !hasTafsir && props.facingPage) {
-    // Open book: odd pages on the right, even on the left.
+    // Open book: odd pages on the right, even on the left. Pages are tall, so height limits them —
+    // use a tighter vertical margin and fit the panel to the pages.
+    const sl = { ...l, padY: height * 0.035 };
+    const pad = overMedia ? panelPad(l.u, true) : { x: 0, y: 0 };
     const gutter = 24 * l.u;
-    const pageWidth = (width - l.padX * 2 - gutter) / 2;
-    const pageHeight = height - l.padY * 2 - (style.showWatermark ? l.watermarkHeight * 0.6 : 0);
+    const pageWidth = (width - l.padX * 2 - pad.x * 2 - gutter) / 2;
+    const pageHeight = height - sl.padY * 2 - pad.y * 2 - (style.showWatermark ? l.watermarkHeight * 0.6 + l.gap : 0);
     const facing = { ...props, mushafPage: props.facingPage, highlightedWordIndex: -1 };
     const sides = mushafPage.page % 2 ? [facing, props] : [props, facing];
     return (
-      <Frame p={p} l={l} overMedia={overMedia}>
+      <Frame p={p} l={sl} overMedia={overMedia} fit>
         <div style={{ display: "flex", flexDirection: "row", gap: gutter, alignItems: "center", justifyContent: "center", direction: "ltr" }}>
           {sides.map((side) =>
             side.mushafPage?.image ? (

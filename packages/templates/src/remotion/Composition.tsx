@@ -160,7 +160,7 @@ function SpanSlides({ layout, backgrounds, basmala, surahNames, fps, ...rest }: 
     facingPage: layout.spread && ayah.page != null ? pageOf(layout, facingPage(ayah.page)) : undefined,
     slide: state.slide,
     basmala: ayah.basmala ?? (state.index === 0 ? basmala : undefined),
-    overMedia: bg?.type === "image" || bg?.type === "video",
+    overMedia: (bg?.type === "image" || bg?.type === "video") && rest.style.mediaPanel !== false,
     highlightedWordIndex: state.highlightedWordIndex,
     tafsirPageIndex: state.tafsirPageIndex,
     tafsirOpacity: state.tafsirOpacity,

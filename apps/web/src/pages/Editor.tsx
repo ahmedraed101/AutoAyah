@@ -544,6 +544,9 @@ export function Editor() {
               <div className="switches">
                 <Switch label={t("tajweedColors")} checked={config.style.tajweed} onChange={(tajweed) => style({ tajweed })} />
                 <Switch label={t("watermark")} checked={config.style.showWatermark} onChange={(showWatermark) => style({ showWatermark })} />
+                {selectedBg?.type === "image" || selectedBg?.type === "video" ? (
+                  <Switch label={t("mediaPanel")} checked={config.style.mediaPanel} onChange={(mediaPanel) => style({ mediaPanel })} />
+                ) : null}
               </div>
               {config.style.showWatermark ? (
                 <Field label={t("watermarkText")}>

@@ -74,6 +74,8 @@ export const StyleConfigSchema = z.object({
   tajweed: z.boolean().default(true),
   showWatermark: z.boolean().default(true),
   watermarkText: z.string().default("AutoAyah"),
+  /** Draw a translucent panel behind the content when the background is a photo or video. */
+  mediaPanel: z.boolean().default(true),
   /** Mushaf modes: paper and ink of the scanned page ("auto" follows the light/dark theme). */
   mushafPaper: z.enum(["auto", "ivory", "white", "sepia", "mint", "night"]).default("auto"),
   /** Mushaf modes: frame drawn around the page. */
