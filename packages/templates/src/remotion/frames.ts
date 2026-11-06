@@ -106,7 +106,7 @@ export function slideStateAt(layout: LayoutSpan, frame: number, fps: number, sur
   const { slide, index } = [...span.slides].reverse().find((s) => s.slide.startFrame <= frame) ?? span.slides[0]!;
   const local = frame - slide.startFrame;
   const grouped = span.slides.length > 1 || isMushafMode(mode);
-  const pageWords = pageOf(layout, slide.ayah.page)?.words?.[`${surah}:${slide.ayah.number}`];
+  const pageWords = pageOf(layout, slide.ayah.page)?.words?.[`${slide.ayah.surah ?? surah}:${slide.ayah.number}`];
   const highlightedWordIndex =
     mode === "wordHighlight"
       ? wordIndexAt(slide, local, fps)

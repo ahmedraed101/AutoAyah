@@ -7,7 +7,7 @@ import cors from "cors";
 import express from "express";
 import multer from "multer";
 import { ZodError, z } from "zod";
-import { VideoConfigSchema, renderFileName, type Job, type VideoConfig } from "@autoayah/core";
+import { VideoConfigSchema, clipAyahCount, clipSegments, renderFileName, type Job, type VideoConfig } from "@autoayah/core";
 import {
   createFsCache,
   createResolver,
@@ -87,7 +87,7 @@ const assetBaseUrl = `http://127.0.0.1:${env.PORT}`;
 const templatesEntry = path.resolve(__dirname, "../../../packages/templates/src/remotion/index.tsx");
 
 function checkRange(config: VideoConfig) {
-  if (env.MAX_AYAT_PER_VIDEO && config.to - config.from + 1 > env.MAX_AYAT_PER_VIDEO) {
+  if (env.MAX_AYAT_PER_VIDEO && clipAyahCount(config) > env.MAX_AYAT_PER_VIDEO) {
     throw new Error(`This server allows at most ${env.MAX_AYAT_PER_VIDEO} ayat per video`);
   }
 }
@@ -110,18 +110,17 @@ const queue = new RenderQueue(db, env.MAX_CONCURRENT_RENDERS, async (job, onProg
   const common = { resolver: resolver(), outDir: env.outDir, entryPoint: templatesEntry, assetBaseUrl, limits, signal };
   if (job.config.export !== "batch") return renderJob(job, { ...common, onProgress });
 
-  const { from, to } = job.config;
-  const total = to - from + 1;
+  const ayat = clipSegments(job.config).flatMap((s) => Array.from({ length: s.to - s.from + 1 }, (_, i) => [s.surah, s.from + i] as const));
   // Per-ayah videos go to a private folder so they never clash with (or delete) standalone renders of the same ayah.
   const workDir = path.join(env.outDir, `.batch-${job.id}`);
   try {
     const paths: string[] = [];
-    for (let a = from; a <= to; a++) {
+    for (const [i, [surah, a]] of ayat.entries()) {
       if (signal.aborted) throw new Error("cancelled");
-      const childConfig: VideoConfig = { ...job.config, from: a, to: a, export: "mp4", backgrounds: job.config.backgrounds };
+      const childConfig: VideoConfig = { ...job.config, surah, from: a, toSurah: null, to: a, range: null, export: "mp4" };
       const result = await renderJob(
-        { ...job, id: `${job.id}-${a}`, config: childConfig },
-        { ...common, outDir: workDir, onProgress: (p) => onProgress((a - from + p) / total) },
+        { ...job, id: `${job.id}-${surah}-${a}`, config: childConfig },
+        { ...common, outDir: workDir, onProgress: (p) => onProgress((i + p) / ayat.length) },
       );
       paths.push(...result.paths);
     }
@@ -211,6 +210,7 @@ app.get(
 
 app.get("/api/surahs", handle(async (_req, res) => res.json(await resolver().getSurahs())));
 app.get("/api/reciters", handle(async (_req, res) => res.json(await resolver().getReciters())));
+app.get("/api/divisions", handle(async (_req, res) => res.json(await resolver().getDivisions())));
 app.get("/api/tafsirs", handle(async (_req, res) => res.json(await resolver().getTafsirs())));
 app.get("/api/translations", handle(async (_req, res) => res.json(await resolver().getTranslations())));
 

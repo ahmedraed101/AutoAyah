@@ -68,6 +68,7 @@ export async function buildProps(
     tafsirName: clip.tafsirName,
     translationName: clip.translationName,
     basmala: clip.basmala,
+    surahNames: clip.surahNames,
     mushafPages: clip.mushafPages,
     warnings: timeline.warnings,
   };

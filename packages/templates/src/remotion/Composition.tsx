@@ -42,6 +42,7 @@ const Scene: React.FC<CompositionProps & { muted?: boolean }> = ({
   tafsirName,
   translationName,
   basmala,
+  surahNames,
   mushafPages,
   assetBaseUrl = "",
   muted,
@@ -108,6 +109,7 @@ const Scene: React.FC<CompositionProps & { muted?: boolean }> = ({
             tafsirName={tafsirName}
             translationName={translationName}
             basmala={basmala}
+            surahNames={surahNames}
             style={style}
             width={width}
             height={height}
@@ -121,7 +123,7 @@ const Scene: React.FC<CompositionProps & { muted?: boolean }> = ({
       {muted
         ? null
         : slides.map((slide, i) => (
-            <Sequence key={`audio-${slide.ayah.number}-${i}`} from={slide.startFrame} durationInFrames={slide.durationInFrames}>
+            <Sequence key={`audio-${slide.ayah.surah ?? ""}-${slide.ayah.number}-${i}`} from={slide.startFrame} durationInFrames={slide.durationInFrames}>
               <Audio src={asset(slide.ayah.audioUrl)} volume={(f) => audio.recitationVolume * masterVolAt(slide.startFrame + f)} />
             </Sequence>
           ))}
@@ -140,20 +142,24 @@ const withAssetUrl =
 
 type SpanProps = Omit<SlideProps, "slide" | "overMedia" | "mushafPage" | "facingPage"> & {
   layout: LayoutSpan;
+  surahNames?: Record<string, string>;
   fps: number;
   backgrounds: CompositionProps["config"]["backgrounds"];
 };
 
-function SpanSlides({ layout, backgrounds, basmala, fps, ...rest }: SpanProps) {
+function SpanSlides({ layout, backgrounds, basmala, surahNames, fps, ...rest }: SpanProps) {
   const state = slideStateAt(layout, layout.span.from + useCurrentFrame(), fps, rest.surah ?? 0);
+  const { ayah } = state.slide;
   const bg = backgrounds[state.slide.backgroundIndex];
-  const page = state.slide.ayah.page;
+  const surah = ayah.surah ?? rest.surah;
   const props: SlideProps = {
     ...rest,
-    mushafPage: pageOf(layout, page),
-    facingPage: layout.spread && page != null ? pageOf(layout, facingPage(page)) : undefined,
+    surah,
+    surahName: (surah != null && surahNames?.[surah]) || rest.surahName,
+    mushafPage: pageOf(layout, ayah.page),
+    facingPage: layout.spread && ayah.page != null ? pageOf(layout, facingPage(ayah.page)) : undefined,
     slide: state.slide,
-    basmala: state.index === 0 ? basmala : undefined,
+    basmala: ayah.basmala ?? (state.index === 0 ? basmala : undefined),
     overMedia: bg?.type === "image" || bg?.type === "video",
     highlightedWordIndex: state.highlightedWordIndex,
     tafsirPageIndex: state.tafsirPageIndex,

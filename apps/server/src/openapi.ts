@@ -23,6 +23,9 @@ export function openApiSpec(publicUrl: string) {
       "/api/config": { get: { summary: "App config and capabilities", responses: { "200": { description: "Config" } } } },
       "/api/surahs": { get: { summary: "List surahs", responses: { "200": { description: "Surahs" } } } },
       "/api/reciters": { get: { summary: "List reciters", responses: { "200": { description: "Reciters" } } } },
+      "/api/divisions": {
+        get: { summary: "Juz, hizb, rub', page and manzil boundaries", responses: { "200": { description: "Divisions by kind" } } },
+      },
       "/api/tafsirs": { get: { summary: "List tafsirs", responses: { "200": { description: "Tafsirs" } } } },
       "/api/translations": { get: { summary: "List translations", responses: { "200": { description: "Translations" } } } },
       "/api/preview": {

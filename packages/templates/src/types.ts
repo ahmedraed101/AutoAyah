@@ -8,6 +8,8 @@ export type CompositionProps = {
   translationName?: string;
   /** Shown above the first ayah when the clip starts at ayah 1. */
   basmala?: string;
+  /** Names of every surah in a clip that spans surahs. */
+  surahNames?: Record<string, string>;
   mushafPages?: ResolvedClip["mushafPages"];
   /** Prefix for server-relative asset paths (/media, /uploads, /ambience). Empty in the browser preview. */
   assetBaseUrl?: string;
