@@ -350,9 +350,29 @@ app.get(
     const { data } = await resolver().getAudio(reciter, Number(m[1]), Number(m[2]));
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-    res.send(data);
+    sendRanged(req, res, data);
   }),
 );
+
+/** Browsers can only seek inside media when the server honours Range requests. */
+function sendRanged(req: express.Request, res: express.Response, data: Buffer) {
+  res.setHeader("Accept-Ranges", "bytes");
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
+  if (!range || (!range[1] && !range[2])) return void res.send(data);
+  const size = data.length;
+  let start = range[1] ? Number(range[1]) : size - Number(range[2]);
+  let end = range[1] && range[2] ? Number(range[2]) : size - 1;
+  start = Math.max(0, start);
+  end = Math.min(end, size - 1);
+  if (start > end || start >= size) {
+    res.setHeader("Content-Range", `bytes */${size}`);
+    return void res.status(416).end();
+  }
+  res.status(206);
+  res.setHeader("Content-Range", `bytes ${start}-${end}/${size}`);
+  res.setHeader("Content-Length", String(end - start + 1));
+  res.end(data.subarray(start, end + 1));
+}
 
 app.get(
   "/media/mushaf/:file",
