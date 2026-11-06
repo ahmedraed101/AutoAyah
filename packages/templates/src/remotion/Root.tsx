@@ -32,7 +32,7 @@ export const RemotionRoot: React.FC = () => (
           height={height}
           defaultProps={defaultProps}
           calculateMetadata={async ({ props }) => ({
-            durationInFrames: Math.max(1, props.timeline.totalFrames),
+            durationInFrames: Math.max(1, props.frameMap?.length || props.timeline.totalFrames),
             width: props.timeline.width,
             height: props.timeline.height,
             fps: FPS,

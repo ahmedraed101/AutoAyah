@@ -10,6 +10,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./frames": {
+      "types": "./dist/remotion/frames.d.ts",
+      "import": "./dist/remotion/frames.js"
+    },
     "./remotion": {
       "types": "./dist/remotion/index.d.ts",
       "import": "./dist/remotion/index.js"
