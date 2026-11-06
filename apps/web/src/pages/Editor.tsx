@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Player } from "@remotion/player";
 import { useTranslation } from "react-i18next";
-import { ASPECT_RATIOS, AMBIENCE_PRESETS, canUseMode, projectName, type Job, type VideoConfig, type VideoMode } from "@autoayah/core";
+import {
+  ASPECT_RATIOS,
+  AMBIENCE_PRESETS,
+  canUseMode,
+  isMushafMode,
+  projectName,
+  type Job,
+  type VideoConfig,
+  type VideoMode,
+} from "@autoayah/core";
 import { AutoAyahComposition } from "@autoayah/templates";
 import { api, type MediaResult, type PreviewResult } from "../api";
 import { browserStore } from "../browserStore";
@@ -10,10 +19,31 @@ import { Icon, Rosette } from "../components/Icon";
 import { useEditor, type Panel } from "../store";
 import { localDigits, useSurahs } from "../surahs";
 
-type Option = { id: string; name: string; language?: string; hasWordTimings?: boolean };
+type Option = { id: string; name: string; nameAr?: string; language?: string; hasWordTimings?: boolean };
+
+function groupBy<T>(items: T[], key: (item: T) => string): [string, T[]][] {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    groups.set(k, [...(groups.get(k) ?? []), item]);
+  }
+  return [...groups];
+}
+
+/** Catalogs mix ISO codes ("ar") and English names ("arabic"); show one localized label per language. */
+const LANGUAGE_CODES: Record<string, string> = { arabic: "ar", english: "en", urdu: "ur", bengali: "bn", russian: "ru", kurdish: "ku" };
+function languageName(language: string | undefined, uiLang: string): string {
+  const raw = (language ?? "").toLowerCase();
+  const code = LANGUAGE_CODES[raw] ?? raw;
+  try {
+    return (code.length <= 3 && new Intl.DisplayNames([uiLang], { type: "language" }).of(code)) || language || "—";
+  } catch {
+    return language || "—";
+  }
+}
 
 const TABS: Panel[] = ["content", "mode", "timing", "style", "background", "audio"];
-const MODES: VideoMode[] = ["ayah", "ayahTafsir", "mushafPage", "wordHighlight"];
+const MODES: VideoMode[] = ["ayah", "ayahTafsir", "mushafPage", "mushafWords", "wordHighlight"];
 const EXPORTS: { value: VideoConfig["export"]; label: string }[] = [
   { value: "mp4", label: "MP4" },
   { value: "webm", label: "WebM" },
@@ -21,6 +51,8 @@ const EXPORTS: { value: VideoConfig["export"]; label: string }[] = [
   { value: "srt", label: "SRT" },
   { value: "batch", label: "ZIP" },
 ];
+const PAPERS: VideoConfig["style"]["mushafPaper"][] = ["auto", "ivory", "white", "sepia", "mint", "night"];
+const FRAMES: VideoConfig["style"]["mushafFrame"][] = ["classic", "ornate", "simple", "card", "none"];
 const MAX_PREVIEW_HEIGHT = 720;
 const percent = (v: number) => `${Math.round(v * 100)}%`;
 
@@ -298,30 +330,51 @@ export function Editor() {
               </div>
               <Field label={t("reciter")}>
                 <Select value={config.reciter} onChange={(e) => setConfig({ reciter: e.target.value })}>
-                  {reciters.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
+                  {reciters.length && !reciters.some((r) => r.id === config.reciter) ? (
+                    <option value={config.reciter}>{config.reciter}</option>
+                  ) : null}
+                  {groupBy(reciters, (r) => (r.hasWordTimings ? t("recitersTimed") : t("recitersOther"))).map(([group, items]) => (
+                    <optgroup key={group} label={group}>
+                      {items.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {(lang === "ar" && r.nameAr) || r.name}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </Select>
               </Field>
               <Field label={t("tafsir")}>
                 <Select value={config.tafsir ?? ""} onChange={(e) => setConfig({ tafsir: e.target.value || null })}>
                   <option value="">{t("none")}</option>
-                  {tafsirs.map((x) => (
-                    <option key={x.id} value={x.id}>
-                      {x.name}
-                    </option>
+                  {config.tafsir && tafsirs.length && !tafsirs.some((x) => x.id === config.tafsir) ? (
+                    <option value={config.tafsir}>{config.tafsir}</option>
+                  ) : null}
+                  {groupBy(tafsirs, (x) => languageName(x.language, lang)).map(([group, items]) => (
+                    <optgroup key={group} label={group}>
+                      {items.map((x) => (
+                        <option key={x.id} value={x.id}>
+                          {x.name}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </Select>
               </Field>
               <Field label={t("translation")}>
                 <Select value={config.translation ?? ""} onChange={(e) => setConfig({ translation: e.target.value || null })}>
                   <option value="">{t("none")}</option>
-                  {translations.map((x) => (
-                    <option key={x.id} value={x.id}>
-                      {x.name}
-                    </option>
+                  {config.translation && translations.length && !translations.some((x) => x.id === config.translation) ? (
+                    <option value={config.translation}>{config.translation}</option>
+                  ) : null}
+                  {groupBy(translations, (x) => languageName(x.language, lang)).map(([group, items]) => (
+                    <optgroup key={group} label={group}>
+                      {items.map((x) => (
+                        <option key={x.id} value={x.id}>
+                          {x.name}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </Select>
               </Field>
@@ -427,6 +480,24 @@ export function Editor() {
                   </label>
                 ))}
               </div>
+              {isMushafMode(config.mode) ? (
+                <>
+                  <Group label={t("mushafPaper")}>
+                    <Segmented
+                      value={config.style.mushafPaper}
+                      onChange={(mushafPaper) => style({ mushafPaper })}
+                      options={PAPERS.map((value) => ({ value, label: t(`paper_${value}`) }))}
+                    />
+                  </Group>
+                  <Group label={t("mushafFrame")}>
+                    <Segmented
+                      value={config.style.mushafFrame}
+                      onChange={(mushafFrame) => style({ mushafFrame })}
+                      options={FRAMES.map((value) => ({ value, label: t(`frame_${value}`) }))}
+                    />
+                  </Group>
+                </>
+              ) : null}
               <Slider label={t("fontSize")} min={32} max={120} value={config.style.fontSize} onChange={(fontSize) => style({ fontSize })} />
               <div className="switches">
                 <Switch label={t("tajweedColors")} checked={config.style.tajweed} onChange={(tajweed) => style({ tajweed })} />

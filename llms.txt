@@ -34,7 +34,7 @@ When APP_PASSWORD is set, send the session token as `Authorization: Bearer <toke
   "surah": 25,
   "from": 7,
   "to": 8,
-  "reciter": "Alafasy_128kbps",
+  "reciter": "qdc-7",
   "tafsir": "ar.muyassar",
   "mode": "ayahTafsir",
   "aspectRatio": "9:16",
@@ -42,7 +42,7 @@ When APP_PASSWORD is set, send the session token as `Authorization: Bearer <toke
 }
 ```
 
-`mushafPage` shows the scanned printed Madani page (quran.app public images + ayah coordinates), with a rebuilt 15-line text page as fallback. `wordHighlight` uses QF word timings when connected, otherwise estimated timing.
+`mushafPage` shows the scanned printed Madani page (quran.app public images + ayah coordinates), with a rebuilt 15-line text page as fallback. `mushafWords` is the same scanned page with each recited word boxed on the scan. `wordHighlight` and `mushafWords` use QF word timings when connected, otherwise estimated timing.
 
 ## CLI
 

@@ -5,7 +5,7 @@ const defaultConfig = VideoConfigSchema.parse({
   surah: 25,
   from: 7,
   to: 7,
-  reciter: "Alafasy_128kbps",
+  reciter: "qdc-7",
   tafsir: "ar.muyassar",
   mode: "ayahTafsir",
   aspectRatio: "9:16",
