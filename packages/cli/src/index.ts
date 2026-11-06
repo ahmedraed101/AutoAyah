@@ -42,7 +42,7 @@ async function library(cmd: string) {
 
 async function render(args: string[]) {
   const ref = args[0];
-  if (!ref) throw new Error("Usage: autoayah render 25:7-10 [--mode ayahTafsir] [--aspect 9:16] [--reciter Alafasy_128kbps]");
+  if (!ref) throw new Error("Usage: autoayah render 25:7-10 [--mode ayahTafsir] [--aspect 9:16] [--reciter qdc-7]");
   const { surah, from, to } = parseRef(ref);
   const flags: Record<string, string> = {};
   for (let i = 1; i < args.length; i++) {
@@ -54,7 +54,7 @@ async function render(args: string[]) {
     surah,
     from,
     to,
-    reciter: flags.reciter ?? "Alafasy_128kbps",
+    reciter: flags.reciter ?? "qdc-7",
     mode: flags.mode ?? "ayah",
     aspectRatio: flags.aspect ?? "9:16",
     tafsir: flags.tafsir ?? null,

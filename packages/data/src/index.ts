@@ -6,3 +6,5 @@ export * from "./fs-cache.js";
 export * from "./resolver.js";
 export * from "./mushaf.js";
 export * from "./mushaf-images.js";
+export * from "./quran-com.js";
+export * from "./mp3.js";

@@ -52,7 +52,7 @@ export type ClipRequest = Pick<VideoConfig, "surah" | "from" | "to" | "reciter" 
 
 export type Resolver = {
   getSurahs(): Promise<{ number: number; name: string; englishName: string; numberOfAyahs: number }[]>;
-  getReciters(): Promise<{ id: string; name: string; source: string; hasWordTimings: boolean }[]>;
+  getReciters(): Promise<{ id: string; name: string; nameAr?: string; source: string; hasWordTimings: boolean }[]>;
   getTafsirs(): Promise<{ id: string; name: string; language: string; source: string }[]>;
   getTranslations(): Promise<{ id: string; name: string; language: string; source: string }[]>;
   resolveClip(config: ClipRequest): Promise<ResolvedClip>;

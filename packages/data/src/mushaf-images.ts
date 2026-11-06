@@ -71,14 +71,48 @@ export async function fetchAyahInfoDb(): Promise<Buffer> {
 
 const dbs = new Map<string, DatabaseSync>();
 
-/** Per-ayah boxes (one per line the ayah touches) for a page, keyed "surah:ayah". */
-export function ayahBoxes(dbPath: string, page: number): Record<string, AyahBox[]> {
+function openDb(dbPath: string): DatabaseSync {
   let db = dbs.get(dbPath);
   if (!db) {
     db = new DatabaseSync(dbPath, { readOnly: true });
     dbs.set(dbPath, db);
   }
-  const rows = db
+  return db;
+}
+
+/** Waqf signs are separate small glyphs drawn above the line (≈20px tall, a few px wide at 1024px). */
+const isPauseMark = (w: number, h: number) => h < 26 && w < 20;
+
+/**
+ * Per-word boxes in reading order, keyed "surah:ayah". Pause marks and the ayah-end medallion are
+ * dropped; `wordCounts` trims leading glyphs such as the ۞ hizb-quarter sign.
+ */
+export function wordBoxes(dbPath: string, page: number, wordCounts: Record<string, number>): Record<string, AyahBox[]> {
+  const rows = openDb(dbPath)
+    .prepare(
+      `SELECT sura_number s, ayah_number a, min_x x0, max_x x1, min_y y0, max_y y1
+       FROM glyphs WHERE page_number = ? ORDER BY sura_number, ayah_number, position`,
+    )
+    .all(page) as { s: number; a: number; x0: number; x1: number; y0: number; y1: number }[];
+  const glyphs: Record<string, AyahBox[]> = {};
+  for (const r of rows) {
+    const w = r.x1 - r.x0;
+    const h = r.y1 - r.y0;
+    if (isPauseMark(w, h)) continue;
+    (glyphs[`${r.s}:${r.a}`] ??= []).push([Math.min(r.x0, r.x1), r.y0, Math.abs(w), h]);
+  }
+  const out: Record<string, AyahBox[]> = {};
+  for (const [key, boxes] of Object.entries(glyphs)) {
+    const words = boxes.slice(0, -1);
+    const expected = wordCounts[key];
+    out[key] = expected && words.length > expected ? words.slice(words.length - expected) : words;
+  }
+  return out;
+}
+
+/** Per-ayah boxes (one per line the ayah touches) for a page, keyed "surah:ayah". */
+export function ayahBoxes(dbPath: string, page: number): Record<string, AyahBox[]> {
+  const rows = openDb(dbPath)
     .prepare(
       `SELECT sura_number s, ayah_number a, line_number l,
               MIN(min_x) x0, MAX(max_x) x1, MIN(min_y) y0, MAX(max_y) y1
