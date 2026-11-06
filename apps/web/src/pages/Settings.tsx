@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
 import { browserStore } from "../browserStore";
@@ -6,6 +6,17 @@ import { useEditor } from "../store";
 
 const EMPTY = { pexels: "", unsplash: "", pixabay: "", freesound: "", qfClientId: "", qfClientSecret: "" };
 type KeyName = keyof typeof EMPTY;
+
+function KeyLink({ href, text }: { href: string; text: string }) {
+  return (
+    <>
+      {text}{" "}
+      <a href={href} target="_blank" rel="noreferrer" dir="ltr">
+        {new URL(href).hostname.replace(/^www\./, "")}
+      </a>
+    </>
+  );
+}
 
 export function Settings() {
   const { t } = useTranslation();
@@ -57,13 +68,14 @@ export function Settings() {
     setQfMsg(r.message);
   };
 
-  const field = (k: KeyName, label: string, secret = true) => (
+  const field = (k: KeyName, label: string, secret = true, hint?: ReactNode) => (
     <div key={k} className="key-row">
       <label className="field">
         <span className="field-label">
           {label}
           {savedKeys[k] ? <span className="pill">{t("keySaved")}</span> : null}
         </span>
+        {hint ? <span className="field-hint">{hint}</span> : null}
         <input
           type={secret ? "password" : "text"}
           value={keys[k]}
@@ -92,9 +104,14 @@ export function Settings() {
         <h2>{t("apiKeys")}</h2>
         <p className="page-intro">{browser ? t("keysBrowser") : t("keysServer")}</p>
         <div className="fields">
-          {field("pexels", "Pexels")}
-          {field("unsplash", "Unsplash")}
-          {field("pixabay", "Pixabay")}
+          {field("pexels", `Pexels ${t("apiKey")}`, true, <KeyLink href="https://www.pexels.com/api/" text={t("pexelsHint")} />)}
+          {field(
+            "unsplash",
+            "Unsplash Access Key",
+            true,
+            <KeyLink href="https://unsplash.com/oauth/applications" text={t("unsplashHint")} />,
+          )}
+          {field("pixabay", `Pixabay ${t("apiKey")}`, true, <KeyLink href="https://pixabay.com/api/docs/" text={t("pixabayHint")} />)}
           {field("freesound", "Freesound")}
         </div>
       </section>

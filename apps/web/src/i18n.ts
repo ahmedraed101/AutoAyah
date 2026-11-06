@@ -193,6 +193,10 @@ const en = {
   timelineHint: "Tap an ayah to jump to it and change how long it stays on screen.",
   ayahN: "Ayah {{n}}",
   customHold: "Custom hold time",
+  apiKey: "API key",
+  pexelsHint: "Free key, shown after you sign in at",
+  unsplashHint: "Create an app, then copy its Access Key. The Secret Key and Application ID aren't needed. Get it at",
+  pixabayHint: "Your key is shown in the API docs after you sign in at",
 };
 
 type Dict = Record<keyof typeof en, string>;
@@ -389,6 +393,10 @@ const ar: Dict = {
   timelineHint: "اضغط على آية للانتقال إليها وتعديل مدة عرضها.",
   ayahN: "الآية {{n}}",
   customHold: "مدة عرض مخصّصة",
+  apiKey: "مفتاح API",
+  pexelsHint: "مفتاح مجاني يظهر بعد تسجيل الدخول في",
+  unsplashHint: "أنشئ تطبيقاً ثم انسخ مفتاح Access Key. لا حاجة إلى Secret Key أو Application ID. من",
+  pixabayHint: "يظهر مفتاحك في توثيق الـ API بعد تسجيل الدخول في",
 };
 
 void i18n.use(initReactI18next).init({
