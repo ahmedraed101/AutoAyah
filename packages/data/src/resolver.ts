@@ -1,7 +1,9 @@
 import {
   DEFAULT_RECITERS,
   EMPTY_CAPABILITIES,
+  facingPage,
   isMushafMode,
+  isMushafSpread,
   mergeCapabilities,
   type Capabilities,
   type MushafLine,
@@ -496,15 +498,19 @@ export function createResolver(opts: ResolveOptions): Resolver {
 
       let mushafPages: ResolvedClip["mushafPages"];
       if (isMushafMode(config.mode)) {
-        const pages = [...new Set(ayat.map((a) => a.page).filter((p): p is number => p != null))];
+        const own = ayat.map((a) => a.page).filter((p): p is number => p != null);
+        const spread = isMushafSpread(config) ? own.map(facingPage).filter((p) => p >= 1 && p <= 604) : [];
+        const pages = [...new Set([...own, ...spread])];
         // The Basmala line comes from Al-Fatiha 1:1 — fetched, never typed in.
         const fatiha = (await getEditions(1, [QURAN_EDITION])).get(QURAN_EDITION)?.ayahs.find((a) => a.n === 1)?.text;
         mushafPages = await Promise.all(
           pages.map(async (page) => {
             const lines = await mushafLayout(page);
             const surahNames: Record<string, string> = {};
+            const nameOf = (n: number) => surahs.find((s) => s.number === n)?.name ?? "";
             for (const line of lines) {
-              if (line.kind !== "ayah") surahNames[line.surah] = surahs.find((s) => s.number === line.surah)?.name ?? "";
+              if (line.kind !== "ayah") surahNames[line.surah] = nameOf(line.surah);
+              else for (const w of line.words) surahNames[w.verseKey.split(":")[0]!] ??= nameOf(Number(w.verseKey.split(":")[0]));
             }
             return { page, lines, surahNames, basmala: fatiha, ...(await pageScan(page, lines)) };
           }),

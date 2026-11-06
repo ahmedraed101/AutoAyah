@@ -1,11 +1,11 @@
 import { AbsoluteFill, Audio, Img, Loop, OffthreadVideo, Sequence, Video, interpolate, useCurrentFrame } from "remotion";
 import { useEffect, useState } from "react";
-import type { Slide } from "@autoayah/core";
+import { facingPage, type Slide } from "@autoayah/core";
 import type { CompositionProps } from "../types";
 import { BackgroundLayer } from "../Background";
 import { AyahSlide, AyahTafsirSlide, MushafPageSlide, WordHighlightSlide, type SlideProps } from "../slides";
 import { ensureArabicFonts } from "../fonts";
-import { layoutSpans, slideStateAt, type LayoutSpan } from "./frames";
+import { layoutSpans, pageOf, slideStateAt, type LayoutSpan } from "./frames";
 
 export { frameKeys, wordIndexAt } from "./frames";
 
@@ -100,28 +100,23 @@ const Scene: React.FC<CompositionProps & { muted?: boolean }> = ({
         );
       })}
 
-      {layoutSpans({ timeline, config, mushafPages }).map((layout) => {
-        const { span, page } = layout;
-        const resolved = page?.image ? { ...page, image: { ...page.image, url: asset(page.image.url) } } : page;
-        return (
-          <Sequence key={`slides-${span.from}`} from={span.from} durationInFrames={span.duration}>
-            <SpanSlides
-              layout={layout}
-              surahName={surahName}
-              tafsirName={tafsirName}
-              translationName={translationName}
-              basmala={basmala}
-              style={style}
-              width={width}
-              height={height}
-              fps={fps}
-              backgrounds={config.backgrounds}
-              mushafPage={resolved}
-              surah={config.surah}
-            />
-          </Sequence>
-        );
-      })}
+      {layoutSpans({ timeline, config, mushafPages: mushafPages?.map(withAssetUrl(asset)) }).map((layout) => (
+        <Sequence key={`slides-${layout.span.from}`} from={layout.span.from} durationInFrames={layout.span.duration}>
+          <SpanSlides
+            layout={layout}
+            surahName={surahName}
+            tafsirName={tafsirName}
+            translationName={translationName}
+            basmala={basmala}
+            style={style}
+            width={width}
+            height={height}
+            fps={fps}
+            backgrounds={config.backgrounds}
+            surah={config.surah}
+          />
+        </Sequence>
+      ))}
 
       {muted
         ? null
@@ -138,7 +133,12 @@ const Scene: React.FC<CompositionProps & { muted?: boolean }> = ({
   );
 };
 
-type SpanProps = Omit<SlideProps, "slide" | "overMedia"> & {
+const withAssetUrl =
+  (asset: (u: string) => string) =>
+  <P extends NonNullable<CompositionProps["mushafPages"]>[number]>(p: P): P =>
+    p.image ? { ...p, image: { ...p.image, url: asset(p.image.url) } } : p;
+
+type SpanProps = Omit<SlideProps, "slide" | "overMedia" | "mushafPage" | "facingPage"> & {
   layout: LayoutSpan;
   fps: number;
   backgrounds: CompositionProps["config"]["backgrounds"];
@@ -147,8 +147,11 @@ type SpanProps = Omit<SlideProps, "slide" | "overMedia"> & {
 function SpanSlides({ layout, backgrounds, basmala, fps, ...rest }: SpanProps) {
   const state = slideStateAt(layout, layout.span.from + useCurrentFrame(), fps, rest.surah ?? 0);
   const bg = backgrounds[state.slide.backgroundIndex];
+  const page = state.slide.ayah.page;
   const props: SlideProps = {
     ...rest,
+    mushafPage: pageOf(layout, page),
+    facingPage: layout.spread && page != null ? pageOf(layout, facingPage(page)) : undefined,
     slide: state.slide,
     basmala: state.index === 0 ? basmala : undefined,
     overMedia: bg?.type === "image" || bg?.type === "video",

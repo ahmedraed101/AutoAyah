@@ -1,4 +1,4 @@
-import { isMushafMode, type Slide } from "@autoayah/core";
+import { isMushafMode, isMushafSpread, type Slide } from "@autoayah/core";
 import type { CompositionProps } from "../types";
 
 export const PAGE_FADE_FRAMES = 8;
@@ -56,12 +56,12 @@ function tafsirPageAt(slide: Slide, localFrame: number): { index: number; opacit
 
 export type PageSpan = { slides: { slide: Slide; index: number }[]; from: number; duration: number };
 
-/** Mushaf mode keeps one page mounted across its ayat; other modes get one span per slide. */
-function pageSpans(slides: Slide[], groupByPage: boolean): PageSpan[] {
+/** Mushaf mode keeps one page (or open spread) mounted across its ayat; other modes get one span per slide. */
+function pageSpans(slides: Slide[], groupOf: ((s: Slide) => number | undefined) | null): PageSpan[] {
   const spans: PageSpan[] = [];
   slides.forEach((slide, index) => {
     const last = spans[spans.length - 1];
-    if (groupByPage && last && last.slides[0]!.slide.ayah.page === slide.ayah.page) {
+    if (groupOf && last && groupOf(last.slides[0]!.slide) === groupOf(slide)) {
       last.slides.push({ slide, index });
       last.duration += slide.durationInFrames;
     } else {
@@ -71,14 +71,21 @@ function pageSpans(slides: Slide[], groupByPage: boolean): PageSpan[] {
   return spans;
 }
 
-export type LayoutSpan = { span: PageSpan; mode: string; page?: MushafPage };
+export type LayoutSpan = { span: PageSpan; mode: string; spread: boolean; pages: MushafPage[] };
+
+export const pageOf = (layout: LayoutSpan, page: number | undefined) =>
+  page == null ? undefined : layout.pages.find((p) => p.page === page);
 
 /** The slide spans the composition mounts, with the mode each one is drawn in. */
 export function layoutSpans(props: Pick<CompositionProps, "timeline" | "config" | "mushafPages">): LayoutSpan[] {
   const mushaf = isMushafMode(props.config.mode);
-  return pageSpans(props.timeline.slides, mushaf).map((span) => {
-    const page = props.mushafPages?.find((p) => p.page === span.slides[0]!.slide.ayah.page);
-    return { span, page, mode: mushaf && !page ? "ayahTafsir" : props.config.mode };
+  const spread = isMushafSpread(props.config);
+  const pages = props.mushafPages ?? [];
+  const groupOf = (s: Slide) => (s.ayah.page == null ? undefined : spread ? Math.ceil(s.ayah.page / 2) : s.ayah.page);
+  return pageSpans(props.timeline.slides, mushaf ? groupOf : null).map((span) => {
+    const layout: LayoutSpan = { span, spread, pages, mode: props.config.mode };
+    if (mushaf && !pageOf(layout, span.slides[0]!.slide.ayah.page)) layout.mode = "ayahTafsir";
+    return layout;
   });
 }
 
@@ -94,11 +101,12 @@ export type SlideState = {
   enter: number;
 };
 
-export function slideStateAt({ span, mode, page }: LayoutSpan, frame: number, fps: number, surah: number): SlideState {
+export function slideStateAt(layout: LayoutSpan, frame: number, fps: number, surah: number): SlideState {
+  const { span, mode } = layout;
   const { slide, index } = [...span.slides].reverse().find((s) => s.slide.startFrame <= frame) ?? span.slides[0]!;
   const local = frame - slide.startFrame;
   const grouped = span.slides.length > 1 || isMushafMode(mode);
-  const pageWords = page?.words?.[`${surah}:${slide.ayah.number}`];
+  const pageWords = pageOf(layout, slide.ayah.page)?.words?.[`${surah}:${slide.ayah.number}`];
   const highlightedWordIndex =
     mode === "wordHighlight"
       ? wordIndexAt(slide, local, fps)

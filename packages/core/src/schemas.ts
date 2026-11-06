@@ -7,6 +7,16 @@ export const VideoModeSchema = z.enum(["ayah", "ayahTafsir", "mushafPage", "mush
 export function isMushafMode(mode: string): mode is "mushafPage" | "mushafWords" {
   return mode === "mushafPage" || mode === "mushafWords";
 }
+
+/** Wide Mushaf videos without tafsir show the open book: the page and the one facing it. */
+export function isMushafSpread(c: { mode: string; aspectRatio?: string; tafsir?: string | null }): boolean {
+  return isMushafMode(c.mode) && c.aspectRatio === "16:9" && !c.tafsir;
+}
+
+/** In the Madani Mushaf odd pages sit on the right and pair with the next even page. */
+export function facingPage(page: number): number {
+  return page % 2 ? page + 1 : page - 1;
+}
 export const TimingModeSchema = z.enum(["continuous", "reading"]);
 export const ReadingSpeedSchema = z.enum(["fast", "slow", "verySlow"]);
 export const ExportFormatSchema = z.enum(["mp4", "webm", "png", "srt", "batch"]);

@@ -21,8 +21,17 @@ export type SlideProps = {
   /** Background is a photo/video: put content on a readable panel. */
   overMedia?: boolean;
   mushafPage?: NonNullable<ResolvedClip["mushafPages"]>[number];
+  /** The page opposite `mushafPage` when the open book (two pages) is shown. */
+  facingPage?: NonNullable<ResolvedClip["mushafPages"]>[number];
   surah?: number;
 };
+
+/** Running-header surah of a page: the surah its first line belongs to. */
+function pageSurahName(page: NonNullable<SlideProps["mushafPage"]>, fallback: string): string {
+  const first = page.lines[0];
+  const n = !first ? undefined : first.kind === "ayah" ? first.words[0]?.verseKey.split(":")[0] : String(first.surah);
+  return (n && page.surahNames[n]) || fallback;
+}
 
 type Palette = {
   page: string;
@@ -494,7 +503,7 @@ function MushafPageBlock({ props, p, width, maxHeight }: { props: SlideProps; p:
           marginBottom: size * 0.15,
         }}
       >
-        <span>{props.surahName}</span>
+        <span>{pageSurahName(mushafPage, props.surahName)}</span>
         <span>{toArabicDigits(mushafPage.page)}</span>
       </div>
       {mushafPage.lines.map((line) => {
@@ -581,8 +590,8 @@ function OrnateCorners({ size, p }: { size: number; p: Palette }) {
   );
 }
 
-/** The scanned printed page; everything except the current ayah is softly veiled. */
-function MushafScan({ props, p, width, maxHeight }: { props: SlideProps; p: Palette; width: number; maxHeight: number }) {
+/** The scanned printed page; everything except the current ayah is softly veiled (all of it when `dimmed`). */
+function MushafScan({ props, p, width, maxHeight, dimmed }: { props: SlideProps; p: Palette; width: number; maxHeight: number; dimmed?: boolean }) {
   const { mushafPage, surah, slide, style, surahName } = props;
   const image = mushafPage?.image;
   if (!mushafPage || !image) return null;
@@ -629,12 +638,12 @@ function MushafScan({ props, p, width, maxHeight }: { props: SlideProps; p: Pale
           paddingInline: frameKind === "ornate" ? frame * 1.3 : 0,
         }}
       >
-        <span>{surahName}</span>
+        <span>{pageSurahName(mushafPage, surahName)}</span>
         <span>{toArabicDigits(mushafPage.page)}</span>
       </div>
       <div style={{ position: "relative", width: w, height: h, overflow: "hidden" }}>
         <Img src={image.url} style={{ width: w, height: image.height * scale, display: "block", filter: `url(#${inkId})` }} />
-        {current.length ? (
+        {current.length || dimmed ? (
           <svg viewBox={`0 0 ${image.width} ${image.height}`} style={{ position: "absolute", top: 0, left: 0, width: w, height: image.height * scale }}>
             <defs>
               <mask id={maskId}>
@@ -678,6 +687,29 @@ export function MushafPageSlide(props: SlideProps) {
   const hasTafsir = Boolean(slide.tafsirPages.length || slide.ayah.tafsir);
   // The page carries its own running header (surah name, page number), so no separate banner is needed.
   const available = budget(l, height, style.showWatermark) + l.bannerHeight + l.gap;
+
+  if (l.landscape && !hasTafsir && props.facingPage) {
+    // Open book: odd pages on the right, even on the left.
+    const gutter = 24 * l.u;
+    const pageWidth = (width - l.padX * 2 - gutter) / 2;
+    const pageHeight = height - l.padY * 2 - (style.showWatermark ? l.watermarkHeight * 0.6 : 0);
+    const facing = { ...props, mushafPage: props.facingPage, highlightedWordIndex: -1 };
+    const sides = mushafPage.page % 2 ? [facing, props] : [props, facing];
+    return (
+      <Frame p={p} l={l} overMedia={overMedia}>
+        <div style={{ display: "flex", flexDirection: "row", gap: gutter, alignItems: "center", justifyContent: "center", direction: "ltr" }}>
+          {sides.map((side) =>
+            side.mushafPage?.image ? (
+              <MushafScan key={side.mushafPage.page} props={side} p={p} width={pageWidth} maxHeight={pageHeight} dimmed={side !== props} />
+            ) : (
+              <MushafPageBlock key={side.mushafPage?.page} props={side} p={p} width={pageWidth} maxHeight={pageHeight} />
+            ),
+          )}
+        </div>
+        {style.showWatermark ? <Watermark text={style.watermarkText} p={p} u={l.u} /> : null}
+      </Frame>
+    );
+  }
 
   if (l.landscape) {
     return (

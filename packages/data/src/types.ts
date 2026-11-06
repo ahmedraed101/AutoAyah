@@ -50,6 +50,7 @@ export type ResolveOptions = {
 };
 
 export type ClipRequest = Pick<VideoConfig, "surah" | "from" | "to" | "reciter" | "tafsir" | "translation" | "mode"> & {
+  aspectRatio?: VideoConfig["aspectRatio"];
   style?: { tajweed?: boolean };
 };
 
