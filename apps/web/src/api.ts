@@ -1,4 +1,4 @@
-import type { AppConfig, Job, MediaRef, Project, VideoConfig } from "@autoayah/core";
+import type { AppConfig, Job, MediaRef, Project, QuranDivisions, VideoConfig } from "@autoayah/core";
 import type { CompositionProps } from "@autoayah/templates";
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
@@ -41,6 +41,7 @@ export type DownloadTask = DownloadRequest & {
 export const api = {
   config: () => json<AppConfig>("/api/config"),
   surahs: () => json<{ number: number; name: string; englishName: string; numberOfAyahs: number }[]>("/api/surahs"),
+  divisions: () => json<QuranDivisions>("/api/divisions"),
   reciters: () => json<{ id: string; name: string; nameAr?: string; hasWordTimings: boolean }[]>("/api/reciters"),
   tafsirs: () => json<{ id: string; name: string; language: string }[]>("/api/tafsirs"),
   translations: () => json<{ id: string; name: string; language: string }[]>("/api/translations"),

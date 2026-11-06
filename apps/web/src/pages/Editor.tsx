@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { useTranslation } from "react-i18next";
 import {
   ASPECT_RATIOS,
   AMBIENCE_PRESETS,
+  ayahKey,
   canUseMode,
+  holdOverride,
   isMushafMode,
   projectName,
+  spansSurahs,
   type Job,
   type VideoConfig,
   type VideoMode,
@@ -17,7 +20,9 @@ import { browserStore } from "../browserStore";
 import { Field, Group, Segmented, Select, Slider, Stepper, Switch } from "../components/controls";
 import { Icon, Rosette } from "../components/Icon";
 import { useEditor, type Panel } from "../store";
-import { localDigits, useSurahs } from "../surahs";
+import { RangePicker } from "../components/RangePicker";
+import { useDivisionTitle } from "../components/SurahLabel";
+import { localDigits, rangeText, surahTitle, useSurahs } from "../surahs";
 import { groupBy, languageName } from "../catalog";
 
 type Option = { id: string; name: string; nameAr?: string; language?: string; hasWordTimings?: boolean };
@@ -49,6 +54,7 @@ export function Editor() {
     useEditor();
 
   const surahs = useSurahs();
+  const divisionTitle = useDivisionTitle();
   const [reciters, setReciters] = useState<Option[]>([]);
   const [tafsirs, setTafsirs] = useState<Option[]>([]);
   const [translations, setTranslations] = useState<Option[]>([]);
@@ -67,7 +73,7 @@ export function Editor() {
   const body = useRef<HTMLDivElement>(null);
   const strip = useRef<HTMLDivElement>(null);
   const player = useRef<PlayerRef>(null);
-  const [playingAyah, setPlayingAyah] = useState<number>();
+  const [playingAyah, setPlayingAyah] = useState<string>();
   const [stageSize, setStageSize] = useState({ width: 400, height: 700 });
 
   useEffect(() => {
@@ -122,7 +128,7 @@ export function Editor() {
     const onFrame = (e: { detail: { frame: number } }) => {
       let s = slides[0];
       for (const x of slides) if (x.startFrame <= e.detail.frame) s = x;
-      setPlayingAyah(s?.ayah.number);
+      if (s) setPlayingAyah(ayahKey(slideRef(s).surah, s.ayah.number));
     };
     p.addEventListener("frameupdate", onFrame);
     return () => p.removeEventListener("frameupdate", onFrame);
@@ -135,11 +141,14 @@ export function Editor() {
       ?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
   }, [playingAyah]);
 
+  const previewSpans = new Set(slides?.map((s) => s.ayah.surah)).size > 1;
   const totalSeconds = slides?.reduce((sum, s) => sum + s.durationInSeconds, 0) ?? 0;
 
   const name = projectName(config);
-  const surah = surahs.find((s) => s.number === config.surah);
-  const maxAyah = surah?.numberOfAyahs ?? 286;
+  const multiSurah = spansSurahs(config);
+  const division = divisionTitle(config);
+  const slideRef = (s: { ayah: { surah?: number; number: number } }) => ({ surah: s.ayah.surah ?? config.surah, ayah: s.ayah.number });
+  const selectedRef = selectedAyah?.split(":").map(Number) as [number, number] | undefined;
   const caps = appConfig?.capabilities ?? { wordTimings: false, mushafLayout: false, fullTafsirCatalog: false, translations: false };
 
   const aspect = ASPECT_RATIOS[config.aspectRatio];
@@ -241,6 +250,7 @@ export function Editor() {
                     tafsirName: preview.tafsirName,
                     translationName: preview.translationName,
                     basmala: preview.basmala,
+                    surahNames: preview.surahNames,
                     mushafPages: preview.mushafPages,
                   }}
                   durationInFrames={Math.max(1, preview.timeline.totalFrames)}
@@ -283,26 +293,37 @@ export function Editor() {
               <span className="timeline-hint">{t("timelineHint")}</span>
             </div>
             <div className="ayah-strip" ref={strip} aria-label={t("ayat")}>
-              {preview.timeline.slides.map((s) => {
-                const held = config.timing.ayahOverrides?.[String(s.ayah.number)]?.holdSeconds != null;
+              {preview.timeline.slides.map((s, i, all) => {
+                const ref = slideRef(s);
+                const k = ayahKey(ref.surah, ref.ayah);
+                const held = holdOverride(config.timing, ref.surah, ref.ayah, config.surah) != null;
+                const surahName = previewSpans ? surahTitle(surahs, ref.surah, lang) : undefined;
+                const newSurah = i > 0 && slideRef(all[i - 1]!).surah !== ref.surah;
                 return (
-                  <button
-                    type="button"
-                    key={s.ayah.number}
-                    className={`ayah-seg${selectedAyah === s.ayah.number ? " on" : ""}${playingAyah === s.ayah.number ? " playing" : ""}`}
-                    style={{ flexGrow: s.durationInSeconds }}
-                    aria-pressed={selectedAyah === s.ayah.number}
-                    aria-label={`${t("ayahN", { n: s.ayah.number })}, ${t("seconds", { n: s.durationInSeconds.toFixed(1) })}`}
-                    onClick={() => {
-                      player.current?.seekTo(s.startFrame);
-                      setSelectedAyah(s.ayah.number);
-                      setPanel("timing");
-                    }}
-                  >
-                    <Rosette size={30}>{localDigits(s.ayah.number, lang)}</Rosette>
-                    <span className="ayah-dur">{t("seconds", { n: s.durationInSeconds.toFixed(1) })}</span>
-                    {held ? <span className="held-dot" title={t("customHold")} /> : null}
-                  </button>
+                  <Fragment key={k}>
+                    {newSurah ? (
+                      <span className="surah-break" aria-hidden>
+                        {surahName}
+                      </span>
+                    ) : null}
+                    <button
+                      type="button"
+                      className={`ayah-seg${selectedAyah === k ? " on" : ""}${playingAyah === k ? " playing" : ""}`}
+                      style={{ flexGrow: s.durationInSeconds }}
+                      aria-pressed={selectedAyah === k}
+                      title={surahName}
+                      aria-label={`${surahName ? `${surahName} ` : ""}${t("ayahN", { n: s.ayah.number })}, ${t("seconds", { n: s.durationInSeconds.toFixed(1) })}`}
+                      onClick={() => {
+                        player.current?.seekTo(s.startFrame);
+                        setSelectedAyah(k);
+                        setPanel("timing");
+                      }}
+                    >
+                      <Rosette size={30}>{localDigits(s.ayah.number, lang)}</Rosette>
+                      <span className="ayah-dur">{t("seconds", { n: s.durationInSeconds.toFixed(1) })}</span>
+                      {held ? <span className="held-dot" title={t("customHold")} /> : null}
+                    </button>
+                  </Fragment>
                 );
               })}
             </div>
@@ -341,19 +362,7 @@ export function Editor() {
                   ))}
                 </div>
               </Group>
-              <Field label={t("surah")}>
-                <Select value={config.surah} onChange={(e) => setConfig({ surah: Number(e.target.value), from: 1, to: 1 })}>
-                  {surahs.map((s) => (
-                    <option key={s.number} value={s.number}>
-                      {lang === "ar" ? `${localDigits(s.number, lang)}. ${s.name}` : `${s.number}. ${s.englishName} — ${s.name}`}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <div className="pair">
-                <Stepper label={t("from")} value={config.from} min={1} max={maxAyah} onChange={(v) => setConfig({ from: v })} />
-                <Stepper label={t("to")} value={config.to} min={config.from} max={maxAyah} onChange={(v) => setConfig({ to: v })} />
-              </div>
+              <RangePicker />
               <Field label={t("reciter")}>
                 <Select value={config.reciter} onChange={(e) => setConfig({ reciter: e.target.value })}>
                   {reciters.length && !reciters.some((r) => r.id === config.reciter) ? (
@@ -457,19 +466,26 @@ export function Editor() {
                   />
                 </Group>
               ) : null}
-              {selectedAyah != null ? (
-                <Field label={t("holdAyah", { n: selectedAyah })}>
+              {selectedRef ? (
+                <Field
+                  label={
+                    multiSurah
+                      ? `${surahTitle(surahs, selectedRef[0], lang)} · ${t("holdAyah", { n: selectedRef[1] })}`
+                      : t("holdAyah", { n: selectedRef[1] })
+                  }
+                >
                   <input
                     type="number"
                     inputMode="decimal"
                     min={0}
                     step={0.5}
-                    value={config.timing.ayahOverrides?.[String(selectedAyah)]?.holdSeconds ?? ""}
+                    value={holdOverride(config.timing, selectedRef[0], selectedRef[1], config.surah) ?? ""}
                     onChange={(e) => {
                       const v = e.target.value === "" ? undefined : Number(e.target.value);
                       const ayahOverrides = { ...config.timing.ayahOverrides };
-                      if (v == null || Number.isNaN(v)) delete ayahOverrides[String(selectedAyah)];
-                      else ayahOverrides[String(selectedAyah)] = { holdSeconds: v };
+                      if (selectedRef[0] === config.surah) delete ayahOverrides[String(selectedRef[1])];
+                      if (v == null || Number.isNaN(v)) delete ayahOverrides[selectedAyah!];
+                      else ayahOverrides[selectedAyah!] = { holdSeconds: v };
                       timing({ ayahOverrides });
                     }}
                   />
@@ -718,8 +734,8 @@ export function Editor() {
               <span className="project-name" title={name}>
                 {status ?? (
                   <>
-                    <strong>{lang === "ar" ? (surah?.name ?? config.surah) : (surah?.englishName ?? config.surah)}</strong>{" "}
-                    <bdi dir="ltr">{config.from === config.to ? config.from : `${config.from}–${config.to}`}</bdi>
+                    {division ? <strong>{division} </strong> : null}
+                    <bdi dir={lang === "ar" ? "rtl" : "ltr"}>{rangeText(config, surahs, lang)}</bdi>
                     <span className="project-sub">
                       {t(config.mode)} · {config.aspectRatio}
                     </span>

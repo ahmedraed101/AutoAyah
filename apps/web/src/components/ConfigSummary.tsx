@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { AMBIENCE_PRESETS, VideoConfigSchema, isMushafMode, type VideoConfig } from "@autoayah/core";
+import { AMBIENCE_PRESETS, VideoConfigSchema, endSurah, isMushafMode, type VideoConfig } from "@autoayah/core";
 import { entryName, useCatalog, type Catalog } from "../catalog";
 
 type Fact = { key: string; text: string; title?: string; swatches?: string[] };
@@ -63,17 +63,18 @@ function facts(raw: VideoConfig, catalog: Catalog, t: TFunction, lang: string): 
 
 const factKey = (f: Fact) => `${f.text}|${f.swatches?.join(",") ?? ""}`;
 
+const rangeKey = (c: VideoConfig) => `${c.surah}:${c.from}-${endSurah(c)}:${c.to}`;
+
 /** Facts whose value differs among items covering the same surah and ayat. */
 export function useDifferences(configs: VideoConfig[]) {
   const { t, i18n } = useTranslation();
   const catalog = useCatalog();
   const groups = new Map<string, VideoConfig[]>();
   for (const c of configs) {
-    const id = `${c.surah}:${c.from}-${c.to}`;
-    groups.set(id, [...(groups.get(id) ?? []), c]);
+    groups.set(rangeKey(c), [...(groups.get(rangeKey(c)) ?? []), c]);
   }
   return (config: VideoConfig): Set<string> => {
-    const siblings = groups.get(`${config.surah}:${config.from}-${config.to}`) ?? [];
+    const siblings = groups.get(rangeKey(config)) ?? [];
     const diff = new Set<string>();
     if (siblings.length < 2) return diff;
     const all = siblings.map((s) => facts(s, catalog, t, i18n.language));

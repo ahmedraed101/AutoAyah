@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { VideoConfigSchema, type AppConfig, type VideoConfig } from "@autoayah/core";
+import { VideoConfigSchema, spansSurahs, type AppConfig, type VideoConfig } from "@autoayah/core";
 
 const defaultConfig = VideoConfigSchema.parse({
   surah: 25,
@@ -22,7 +22,8 @@ type State = {
   appConfig?: AppConfig;
   theme: "dark" | "light";
   lang: "en" | "ar";
-  selectedAyah?: number;
+  /** `ayahKey(surah, ayah)` of the ayah picked on the timeline. */
+  selectedAyah?: string;
   panel: Panel;
   setConfig: (patch: Partial<VideoConfig>) => void;
   setNested: <K extends keyof VideoConfig>(key: K, value: VideoConfig[K]) => void;
@@ -31,13 +32,14 @@ type State = {
   setLang: (l: "en" | "ar") => void;
   setAppConfig: (c: AppConfig) => void;
   setProject: (name: string, id?: string) => void;
-  setSelectedAyah: (n?: number) => void;
+  setSelectedAyah: (key?: string) => void;
 };
 
-/** Keep the ayah range valid while the user types: from ≤ to, both ≥ 1. */
+/** Keep the ayah range valid while the user types: from ≤ to (within one surah), both ≥ 1. */
 function normalize(prev: VideoConfig, next: VideoConfig): VideoConfig {
   const from = Math.max(1, Math.floor(Number(next.from) || 1));
   let to = Math.max(1, Math.floor(Number(next.to) || from));
+  if (spansSurahs(next)) return { ...next, from, to };
   if (next.from !== prev.from && to < from) to = from;
   return { ...next, from: Math.min(from, to), to };
 }

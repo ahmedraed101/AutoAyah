@@ -521,6 +521,17 @@ input[type="number"] {
   position: relative;
 }
 
+.surah-break {
+  flex: none;
+  align-self: center;
+  padding-inline: 8px 2px;
+  border-inline-start: 2px solid var(--saffron);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .ayah-seg.playing:not(.on) {
   border-color: var(--muted);
   color: var(--text);
