@@ -22,7 +22,7 @@ export function mergeCapabilities(...parts: Partial<Capabilities>[]): Capabiliti
 }
 
 export function modeRequires(mode: string): (keyof Capabilities)[] {
-  if (mode === "mushafPage") return ["mushafLayout"];
+  if (mode === "mushafPage" || mode === "mushafWords") return ["mushafLayout"];
   if (mode === "wordHighlight") return ["wordTimings"];
   return [];
 }

@@ -1,7 +1,12 @@
 import { z } from "zod";
 
 export const AspectRatioSchema = z.enum(["9:16", "16:9", "1:1", "4:5"]);
-export const VideoModeSchema = z.enum(["ayah", "ayahTafsir", "mushafPage", "wordHighlight"]);
+export const VideoModeSchema = z.enum(["ayah", "ayahTafsir", "mushafPage", "mushafWords", "wordHighlight"]);
+
+/** Modes drawn on the scanned Mushaf page. */
+export function isMushafMode(mode: string): mode is "mushafPage" | "mushafWords" {
+  return mode === "mushafPage" || mode === "mushafWords";
+}
 export const TimingModeSchema = z.enum(["continuous", "reading"]);
 export const ReadingSpeedSchema = z.enum(["fast", "slow", "verySlow"]);
 export const ExportFormatSchema = z.enum(["mp4", "webm", "png", "srt", "batch"]);
@@ -56,6 +61,10 @@ export const StyleConfigSchema = z.object({
   tajweed: z.boolean().default(true),
   showWatermark: z.boolean().default(true),
   watermarkText: z.string().default("AutoAyah"),
+  /** Mushaf modes: paper and ink of the scanned page ("auto" follows the light/dark theme). */
+  mushafPaper: z.enum(["auto", "ivory", "white", "sepia", "mint", "night"]).default("auto"),
+  /** Mushaf modes: frame drawn around the page. */
+  mushafFrame: z.enum(["classic", "ornate", "simple", "card", "none"]).default("classic"),
 });
 
 export const TimingConfigSchema = z.object({
@@ -199,6 +208,8 @@ export const MushafPageSchema = z.object({
   image: z.object({ url: z.string(), width: z.number(), height: z.number() }).optional(),
   /** Per-ayah boxes on the image ("surah:ayah" → [x, y, w, h][] in image pixels). */
   boxes: z.record(z.string(), z.array(z.tuple([z.number(), z.number(), z.number(), z.number()]))).optional(),
+  /** Per-word boxes in reading order ("surah:ayah" → one [x, y, w, h] per word, ayah-end marker excluded). */
+  words: z.record(z.string(), z.array(z.tuple([z.number(), z.number(), z.number(), z.number()]))).optional(),
 });
 
 export type MushafLine = z.infer<typeof MushafLineSchema>;

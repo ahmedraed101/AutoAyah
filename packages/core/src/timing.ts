@@ -1,5 +1,5 @@
 import { ASPECT_RATIOS, FPS, READING_SPEEDS, type AspectRatio } from "./constants.js";
-import type { ResolvedAyah, ResolvedClip, TimingConfig, VideoConfig } from "./schemas.js";
+import { isMushafMode, type ResolvedAyah, type ResolvedClip, type TimingConfig, type VideoConfig } from "./schemas.js";
 
 export type Slide = {
   ayah: ResolvedAyah;
@@ -79,10 +79,10 @@ export function buildTimeline(config: VideoConfig, clip: ResolvedClip): Timeline
   const slides: Slide[] = [];
   let frame = 0;
 
-  if (config.mode === "mushafPage" && clip.ayat.some((a) => !a.page)) {
+  if (isMushafMode(config.mode) && clip.ayat.some((a) => !a.page)) {
     warnings.push("Mushaf page data is missing for some ayat. Those slides use Ayah + Tafsir.");
   }
-  if (config.mode === "wordHighlight") {
+  if (config.mode === "wordHighlight" || config.mode === "mushafWords") {
     const missing = clip.ayat.filter((a) => !a.wordTimings?.length).length;
     if (missing) {
       warnings.push(`${missing} ayah(s) lack word timings for this reciter. Highlight timing is estimated from word length.`);
@@ -95,7 +95,7 @@ export function buildTimeline(config: VideoConfig, clip: ResolvedClip): Timeline
     const tafsirPages =
       config.mode === "ayahTafsir"
         ? paginateTafsir(ayah.tafsir ?? "", TAFSIR_PAGE_CHARS[config.aspectRatio as AspectRatio] ?? 240)
-        : config.mode === "mushafPage"
+        : isMushafMode(config.mode)
           ? paginateTafsir(ayah.tafsir ?? "", MUSHAF_TAFSIR_PAGE_CHARS)
           : [];
 
