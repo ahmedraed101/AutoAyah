@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Player } from "@remotion/player";
+import { Player, type PlayerRef } from "@remotion/player";
 import { useTranslation } from "react-i18next";
 import {
   ASPECT_RATIOS,
@@ -55,6 +55,10 @@ const PAPERS: VideoConfig["style"]["mushafPaper"][] = ["auto", "ivory", "white",
 const FRAMES: VideoConfig["style"]["mushafFrame"][] = ["classic", "ornate", "simple", "card", "none"];
 const MAX_PREVIEW_HEIGHT = 720;
 const percent = (v: number) => `${Math.round(v * 100)}%`;
+const clock = (sec: number) => {
+  const s = Math.round(sec);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
 
 /** Fields that change what the preview shows (export format does not). */
 const previewKey = (c: VideoConfig) => JSON.stringify({ ...c, export: undefined, pngFrame: undefined });
@@ -81,6 +85,9 @@ export function Editor() {
   const events = useRef<EventSource | null>(null);
   const stage = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
+  const strip = useRef<HTMLDivElement>(null);
+  const player = useRef<PlayerRef>(null);
+  const [playingAyah, setPlayingAyah] = useState<number>();
   const [stageSize, setStageSize] = useState({ width: 400, height: 700 });
 
   useEffect(() => {
@@ -127,6 +134,28 @@ export function Editor() {
   useEffect(() => {
     body.current?.scrollTo({ top: 0 });
   }, [panel]);
+
+  const slides = preview?.timeline.slides;
+  useEffect(() => {
+    const p = player.current;
+    if (!p || !slides?.length) return;
+    const onFrame = (e: { detail: { frame: number } }) => {
+      let s = slides[0];
+      for (const x of slides) if (x.startFrame <= e.detail.frame) s = x;
+      setPlayingAyah(s?.ayah.number);
+    };
+    p.addEventListener("frameupdate", onFrame);
+    return () => p.removeEventListener("frameupdate", onFrame);
+  }, [slides]);
+
+  useEffect(() => {
+    if (playingAyah == null) return;
+    strip.current
+      ?.querySelector<HTMLElement>(".ayah-seg.playing")
+      ?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
+  }, [playingAyah]);
+
+  const totalSeconds = slides?.reduce((sum, s) => sum + s.durationInSeconds, 0) ?? 0;
 
   const name = projectName(config);
   const surah = surahs.find((s) => s.number === config.surah);
@@ -239,6 +268,7 @@ export function Editor() {
                   compositionWidth={preview.timeline.width}
                   compositionHeight={preview.timeline.height}
                   style={playerStyle}
+                  ref={player}
                   acknowledgeRemotionLicense
                   controls
                 />
@@ -264,24 +294,40 @@ export function Editor() {
           </div>
         ) : null}
 
-        <div className="ayah-strip" aria-label={t("ayat")}>
-          {preview?.timeline.slides.map((s) => (
-            <button
-              type="button"
-              key={s.ayah.number}
-              className={`ayah-seg${selectedAyah === s.ayah.number ? " on" : ""}`}
-              style={{ flexGrow: s.durationInSeconds }}
-              aria-pressed={selectedAyah === s.ayah.number}
-              onClick={() => {
-                setSelectedAyah(s.ayah.number);
-                setPanel("timing");
-              }}
-            >
-              <Rosette size={30}>{localDigits(s.ayah.number, lang)}</Rosette>
-              <span className="ayah-dur">{t("seconds", { n: s.durationInSeconds.toFixed(1) })}</span>
-            </button>
-          ))}
-        </div>
+        {preview?.timeline.slides.length ? (
+          <div className="timeline">
+            <div className="timeline-head">
+              <span className="timeline-title">
+                {t("ayat")} <bdi className="timeline-total">{clock(totalSeconds)}</bdi>
+              </span>
+              <span className="timeline-hint">{t("timelineHint")}</span>
+            </div>
+            <div className="ayah-strip" ref={strip} aria-label={t("ayat")}>
+              {preview.timeline.slides.map((s) => {
+                const held = config.timing.ayahOverrides?.[String(s.ayah.number)]?.holdSeconds != null;
+                return (
+                  <button
+                    type="button"
+                    key={s.ayah.number}
+                    className={`ayah-seg${selectedAyah === s.ayah.number ? " on" : ""}${playingAyah === s.ayah.number ? " playing" : ""}`}
+                    style={{ flexGrow: s.durationInSeconds }}
+                    aria-pressed={selectedAyah === s.ayah.number}
+                    aria-label={`${t("ayahN", { n: s.ayah.number })}, ${t("seconds", { n: s.durationInSeconds.toFixed(1) })}`}
+                    onClick={() => {
+                      player.current?.seekTo(s.startFrame);
+                      setSelectedAyah(s.ayah.number);
+                      setPanel("timing");
+                    }}
+                  >
+                    <Rosette size={30}>{localDigits(s.ayah.number, lang)}</Rosette>
+                    <span className="ayah-dur">{t("seconds", { n: s.durationInSeconds.toFixed(1) })}</span>
+                    {held ? <span className="held-dot" title={t("customHold")} /> : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="inspector">
@@ -693,7 +739,7 @@ export function Editor() {
                 {status ?? (
                   <>
                     <strong>{lang === "ar" ? (surah?.name ?? config.surah) : (surah?.englishName ?? config.surah)}</strong>{" "}
-                    <bdi>{config.from === config.to ? config.from : `${config.from}–${config.to}`}</bdi>
+                    <bdi dir="ltr">{config.from === config.to ? config.from : `${config.from}–${config.to}`}</bdi>
                     <span className="project-sub">
                       {t(config.mode)} · {config.aspectRatio}
                     </span>

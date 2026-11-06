@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { Project } from "@autoayah/core";
 import { api } from "../api";
 import { browserStore } from "../browserStore";
+import { ConfigSummary, useDifferences } from "../components/ConfigSummary";
 import { Icon } from "../components/Icon";
 import { Empty, SurahLabel } from "../components/SurahLabel";
 import { useEditor } from "../store";
@@ -29,6 +30,7 @@ export function Projects() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appConfig?.storageMode]);
 
+  const differences = useDifferences(items.map((p) => p.config));
   const open = (p: Project) => {
     setConfig(p.config);
     setProject(p.name, p.id);
@@ -73,7 +75,8 @@ export function Projects() {
         {items.map((p) => (
           <li key={p.id} className="list-item">
             <button type="button" className="list-main" onClick={() => open(p)}>
-              <SurahLabel config={p.config} meta={<>{t(p.config.mode)} · {new Date(p.updatedAt).toLocaleDateString()}</>} />
+              <SurahLabel config={p.config} meta={new Date(p.updatedAt).toLocaleDateString()} />
+              <ConfigSummary config={p.config} differs={differences(p.config)} />
             </button>
             <div className="list-actions">
               <a

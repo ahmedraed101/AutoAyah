@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { Job } from "@autoayah/core";
 import { api } from "../api";
+import { ConfigSummary, useDifferences } from "../components/ConfigSummary";
 import { Icon } from "../components/Icon";
 import { Empty, SurahLabel } from "../components/SurahLabel";
 
@@ -28,6 +29,7 @@ export function Renders() {
     return () => clearInterval(id);
   }, []);
 
+  const differences = useDifferences(jobs.map((j) => j.config));
   const act = (p: Promise<unknown>) => void p.then(load).catch((e: Error) => setError(e.message));
 
   return (
@@ -44,11 +46,12 @@ export function Renders() {
                 config={j.config}
                 meta={
                   <>
-                    <span className={`status s-${j.status}`}>{t(`status_${j.status}`)}</span> · {t(j.config.mode)} ·{" "}
-                    {j.config.export.toUpperCase()} · {new Date(j.createdAt).toLocaleString()}
+                    <span className={`status s-${j.status}`}>{t(`status_${j.status}`)}</span> ·{" "}
+                    {new Date(j.createdAt).toLocaleString()}
                   </>
                 }
               />
+              <ConfigSummary config={j.config} differs={differences(j.config)} />
               {ACTIVE.has(j.status) ? (
                 <span className="progress">
                   <span style={{ width: `${Math.round(j.progress * 100)}%` }} />

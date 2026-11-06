@@ -11,7 +11,7 @@ export function SurahLabel({ config, meta }: { config: VideoConfig; meta?: React
         {surah?.name ?? config.surah}
       </span>
       <span className="surah-en">
-        {surah?.englishName ?? `Surah ${config.surah}`} <bdi>{range}</bdi>
+        {surah?.englishName ?? `Surah ${config.surah}`} <bdi dir="ltr">{range}</bdi>
       </span>
       {meta ? <span className="surah-meta">{meta}</span> : null}
     </div>

@@ -128,6 +128,12 @@ const en = {
   noRendersHint: "Videos you render from the editor appear here.",
   noProjectsHint: "Save a project from the editor to come back to it later.",
   goToEditor: "Open the editor",
+  noTajweed: "No tajweed colors",
+  colors: "Colors",
+  holdOverrides: "Custom holds: {{n}}",
+  timelineHint: "Tap an ayah to jump to it and change how long it stays on screen.",
+  ayahN: "Ayah {{n}}",
+  customHold: "Custom hold time",
 };
 
 type Dict = Record<keyof typeof en, string>;
@@ -259,6 +265,12 @@ const ar: Dict = {
   noRendersHint: "تظهر هنا الفيديوهات التي تنشئها من المحرر.",
   noProjectsHint: "احفظ مشروعاً من المحرر لتعود إليه لاحقاً.",
   goToEditor: "افتح المحرر",
+  noTajweed: "بدون ألوان التجويد",
+  colors: "الألوان",
+  holdOverrides: "مدد عرض مخصصة: {{n}}",
+  timelineHint: "اضغط على آية للانتقال إليها وتعديل مدة عرضها.",
+  ayahN: "الآية {{n}}",
+  customHold: "مدة عرض مخصّصة",
 };
 
 void i18n.use(initReactI18next).init({
