@@ -58,66 +58,71 @@ export function Settings() {
   };
 
   const field = (k: KeyName, label: string, secret = true) => (
-    <label key={k}>
-      <span>
-        {label} {savedKeys[k] ? <span className="warning">· {t("keySaved")}</span> : null}
-      </span>
-      <div className="row">
+    <div key={k} className="key-row">
+      <label className="field">
+        <span className="field-label">
+          {label}
+          {savedKeys[k] ? <span className="pill">{t("keySaved")}</span> : null}
+        </span>
         <input
           type={secret ? "password" : "text"}
           value={keys[k]}
           autoComplete="off"
+          spellCheck={false}
+          dir="ltr"
           onChange={(e) => setKeys({ ...keys, [k]: e.target.value })}
           placeholder={savedKeys[k] ? "••••••••" : ""}
         />
-        {savedKeys[k] ? (
-          <button type="button" className="secondary" style={{ flex: "0 0 auto" }} onClick={() => void clearKey(k)}>
-            {t("delete")}
-          </button>
-        ) : null}
-      </div>
-    </label>
+      </label>
+      {savedKeys[k] ? (
+        <button type="button" className="btn btn-quiet danger" onClick={() => void clearKey(k)}>
+          {t("delete")}
+        </button>
+      ) : null}
+    </div>
   );
 
   return (
     <div className="page">
-      <h1>{t("settings")}</h1>
-      <div className="card">
-        <h3>{t("apiKeys")}</h3>
-        <p className="muted">
-          {browser
-            ? "Keys are stored in this browser only and sent with each request that needs them."
-            : "Keys are stored encrypted on this server."}
-        </p>
+      <header className="page-head">
+        <h1>{t("settings")}</h1>
+      </header>
+
+      <section className="section">
+        <h2>{t("apiKeys")}</h2>
+        <p className="page-intro">{browser ? t("keysBrowser") : t("keysServer")}</p>
         <div className="fields">
           {field("pexels", "Pexels")}
           {field("unsplash", "Unsplash")}
           {field("pixabay", "Pixabay")}
           {field("freesound", "Freesound")}
         </div>
-      </div>
-      <div className="card">
-        <h3>{t("qfConnect")}</h3>
-        <p className="muted">
-          Unlocks word-highlight and Mushaf page modes. Prelive keys only cover Al-Fatiha and Al-Baqarah until production access is
-          approved. You can also import QUL files on the Downloads page.
-        </p>
+      </section>
+
+      <section className="section">
+        <h2>
+          {t("qfConnect")}
+          {appConfig?.qfConnected ? <span className="pill ok">{t("connected")}</span> : null}
+        </h2>
+        <p className="page-intro">{t("qfIntro")}</p>
         <div className="fields">
           {field("qfClientId", "Client ID", false)}
           {field("qfClientSecret", "Client Secret")}
         </div>
-        <div className="row" style={{ marginTop: 8 }}>
-          <button type="button" className="secondary" onClick={() => void testQf().catch((e: Error) => setQfMsg(e.message))}>
+        <div className="btn-row">
+          <button type="button" className="btn btn-quiet" onClick={() => void testQf().catch((e: Error) => setQfMsg(e.message))}>
             {t("testConnection")}
           </button>
         </div>
-        {qfMsg ? <p className="muted">{qfMsg}</p> : null}
-        {appConfig?.qfConnected ? <p>{t("connected")}</p> : null}
+        {qfMsg ? <p className="notice">{qfMsg}</p> : null}
+      </section>
+
+      <div className="save-bar">
+        {status ? <span className="field-hint">{status}</span> : <span />}
+        <button type="button" className="btn btn-primary" onClick={() => void save().catch((e: Error) => setStatus(e.message))}>
+          {t("save")}
+        </button>
       </div>
-      <button type="button" onClick={() => void save().catch((e: Error) => setStatus(e.message))}>
-        {t("save")}
-      </button>
-      {status ? <p className="muted">{status}</p> : null}
     </div>
   );
 }

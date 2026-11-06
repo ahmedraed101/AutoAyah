@@ -1,9 +1,11 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import "@fontsource-variable/readex-pro";
 import "./i18n";
 import "./styles.css";
 import { api } from "./api";
+import { Rosette } from "./components/Icon";
 import { Layout } from "./components/Layout";
 import { Downloads } from "./pages/Downloads";
 import { Editor } from "./pages/Editor";
@@ -43,7 +45,12 @@ function App() {
     })();
   }, [setAppConfig, setTheme, setLang]);
 
-  if (!ready) return <div className="page">Loading…</div>;
+  if (!ready)
+    return (
+      <div className="boot" aria-label="Loading">
+        <Rosette size={40} />
+      </div>
+    );
   if (needLogin) {
     return (
       <Login

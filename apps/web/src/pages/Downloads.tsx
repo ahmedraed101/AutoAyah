@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
+import { Icon } from "../components/Icon";
 
 type Item = { key: string; kind: string; size: number; source: string; lastUsed: string };
 
@@ -34,42 +35,51 @@ export function Downloads() {
 
   return (
     <div className="page">
-      <h1>{t("downloads")}</h1>
-      <p className="muted">Recitations, texts and media are cached locally as you use the app. Import QUL JSON/SQLite files here.</p>
-      {error ? <p className="error">{error}</p> : null}
-      <p>
-        {formatBytes(totalBytes)} · {items.length}
-      </p>
-      <label className="button secondary" style={{ display: "inline-flex", marginBottom: "0.75rem" }}>
-        Import QUL file
-        <input
-          type="file"
-          accept=".json,.sqlite,.db,application/json"
-          hidden
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            e.target.value = "";
-            if (f) void onImport(f).catch((err: Error) => setError(err.message));
-          }}
-        />
-      </label>
-      {items.map((i) => (
-        <div key={i.key} className="card list-row">
-          <div className="grow">
-            <strong style={{ wordBreak: "break-all" }}>{i.key}</strong>
-            <p className="muted">
-              {i.kind} · {i.source} · {formatBytes(i.size)} · {new Date(i.lastUsed).toLocaleString()}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => void api.deleteLibrary(i.key).then(load).catch((e: Error) => setError(e.message))}
-          >
-            {t("delete")}
-          </button>
-        </div>
-      ))}
+      <header className="page-head">
+        <h1>{t("downloads")}</h1>
+        <label className="btn btn-quiet">
+          <Icon name="upload" size={18} />
+          {t("importQul")}
+          <input
+            type="file"
+            accept=".json,.sqlite,.db,application/json"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void onImport(f).catch((err: Error) => setError(err.message));
+            }}
+          />
+        </label>
+      </header>
+      <p className="page-intro">{t("libraryIntro")}</p>
+      <p className="usage">{t("cached", { size: formatBytes(totalBytes), n: items.length })}</p>
+      {error ? <p className="notice error">{error}</p> : null}
+      <ul className="list">
+        {items.map((i) => (
+          <li key={i.key} className="list-item">
+            <div className="list-main">
+              <span className="file-key" dir="ltr">
+                {i.key}
+              </span>
+              <span className="surah-meta">
+                {i.kind} · {i.source} · {formatBytes(i.size)} · {new Date(i.lastUsed).toLocaleDateString()}
+              </span>
+            </div>
+            <div className="list-actions">
+              <button
+                type="button"
+                className="btn btn-quiet danger"
+                aria-label={t("delete")}
+                onClick={() => void api.deleteLibrary(i.key).then(load).catch((e: Error) => setError(e.message))}
+              >
+                <Icon name="trash" size={18} />
+                <span className="label-wide">{t("delete")}</span>
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

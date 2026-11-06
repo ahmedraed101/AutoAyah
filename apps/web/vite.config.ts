@@ -11,14 +11,15 @@ export default defineConfig({
       registerType: "autoUpdate",
       workbox: {
         navigateFallbackDenylist: [/^\/(api|out|uploads|media|ambience|mcp|openapi\.json)/],
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
         globIgnores: ["**/fonts/**"],
       },
       manifest: {
         name: "AutoAyah",
         short_name: "AutoAyah",
         description: "Quran video editor for creators",
-        theme_color: "#0b0f0c",
-        background_color: "#0b0f0c",
+        theme_color: "#0f1e2e",
+        background_color: "#0f1e2e",
         display: "standalone",
         start_url: "/",
         icons: [

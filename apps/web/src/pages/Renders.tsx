@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { Job } from "@autoayah/core";
 import { api } from "../api";
+import { Icon } from "../components/Icon";
+import { Empty, SurahLabel } from "../components/SurahLabel";
 
 const ACTIVE = new Set(["queued", "rendering"]);
 
@@ -29,50 +32,69 @@ export function Renders() {
 
   return (
     <div className="page">
-      <h1>{t("renders")}</h1>
-      {error ? <p className="error">{error}</p> : null}
-      {jobs.map((j) => (
-        <div key={j.id} className="card">
-          <div className="list-row">
-            <strong className="grow">
-              {j.config.surah}:{j.config.from}-{j.config.to} · {t(j.config.mode)} · {j.config.export.toUpperCase()}
-            </strong>
-            <span className="muted">
-              {j.status} · {new Date(j.createdAt).toLocaleString()}
-            </span>
-          </div>
-          {ACTIVE.has(j.status) ? (
-            <div className="progress" style={{ marginTop: 8 }}>
-              <span style={{ width: `${Math.round(j.progress * 100)}%` }} />
+      <header className="page-head">
+        <h1>{t("renders")}</h1>
+      </header>
+      {error ? <p className="notice error">{error}</p> : null}
+      <ul className="list">
+        {jobs.map((j) => (
+          <li key={j.id} className="list-item render">
+            <div className="list-main">
+              <SurahLabel
+                config={j.config}
+                meta={
+                  <>
+                    <span className={`status s-${j.status}`}>{t(`status_${j.status}`)}</span> · {t(j.config.mode)} ·{" "}
+                    {j.config.export.toUpperCase()} · {new Date(j.createdAt).toLocaleString()}
+                  </>
+                }
+              />
+              {ACTIVE.has(j.status) ? (
+                <span className="progress">
+                  <span style={{ width: `${Math.round(j.progress * 100)}%` }} />
+                </span>
+              ) : null}
+              {j.error ? <p className="notice error">{j.error}</p> : null}
             </div>
-          ) : null}
-          {j.error ? <p className="error">{j.error}</p> : null}
-          <div className="list-row" style={{ marginTop: 8 }}>
-            {j.outputUrl ? (
-              <a href={j.outputUrl} download>
-                {t("download")}
-              </a>
-            ) : null}
-            <span className="grow" />
-            {ACTIVE.has(j.status) ? (
-              <button type="button" className="secondary" onClick={() => act(api.cancelJob(j.id))}>
-                {t("cancel")}
-              </button>
-            ) : null}
-            {j.status === "failed" || j.status === "cancelled" ? (
-              <button type="button" onClick={() => act(api.retryJob(j.id))}>
-                {t("retry")}
-              </button>
-            ) : null}
-            {!ACTIVE.has(j.status) ? (
-              <button type="button" className="secondary" onClick={() => act(api.deleteJob(j.id))}>
-                {t("delete")}
-              </button>
-            ) : null}
-          </div>
-        </div>
-      ))}
-      {!jobs.length ? <p className="muted">{t("noRenders")}</p> : null}
+            <div className="list-actions">
+              {j.outputUrl ? (
+                <a className="btn btn-quiet accent" href={j.outputUrl} download aria-label={t("download")}>
+                  <Icon name="download" size={18} />
+                  <span className="label-wide">{t("download")}</span>
+                </a>
+              ) : null}
+              {ACTIVE.has(j.status) ? (
+                <button type="button" className="btn btn-quiet" onClick={() => act(api.cancelJob(j.id))}>
+                  {t("cancel")}
+                </button>
+              ) : null}
+              {j.status === "failed" || j.status === "cancelled" ? (
+                <button type="button" className="btn btn-quiet" aria-label={t("retry")} onClick={() => act(api.retryJob(j.id))}>
+                  <Icon name="retry" size={18} />
+                  <span className="label-wide">{t("retry")}</span>
+                </button>
+              ) : null}
+              {!ACTIVE.has(j.status) ? (
+                <button type="button" className="btn btn-quiet danger" aria-label={t("delete")} onClick={() => act(api.deleteJob(j.id))}>
+                  <Icon name="trash" size={18} />
+                  <span className="label-wide">{t("delete")}</span>
+                </button>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {!jobs.length ? (
+        <Empty
+          title={t("noRenders")}
+          hint={t("noRendersHint")}
+          action={
+            <Link className="btn btn-primary" to="/">
+              {t("goToEditor")}
+            </Link>
+          }
+        />
+      ) : null}
     </div>
   );
 }

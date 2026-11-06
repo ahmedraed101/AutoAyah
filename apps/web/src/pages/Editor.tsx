@@ -5,26 +5,34 @@ import { ASPECT_RATIOS, AMBIENCE_PRESETS, canUseMode, projectName, type Job, typ
 import { AutoAyahComposition } from "@autoayah/templates";
 import { api, type MediaResult, type PreviewResult } from "../api";
 import { browserStore } from "../browserStore";
+import { Field, Group, Segmented, Select, Slider, Stepper, Switch } from "../components/controls";
+import { Icon, Rosette } from "../components/Icon";
 import { useEditor, type Panel } from "../store";
+import { localDigits, useSurahs } from "../surahs";
 
-type Surah = { number: number; name: string; englishName: string; numberOfAyahs: number };
 type Option = { id: string; name: string; language?: string; hasWordTimings?: boolean };
 
 const TABS: Panel[] = ["content", "mode", "timing", "style", "background", "audio"];
 const MODES: VideoMode[] = ["ayah", "ayahTafsir", "mushafPage", "wordHighlight"];
+const EXPORTS: { value: VideoConfig["export"]; label: string }[] = [
+  { value: "mp4", label: "MP4" },
+  { value: "webm", label: "WebM" },
+  { value: "png", label: "PNG" },
+  { value: "srt", label: "SRT" },
+  { value: "batch", label: "ZIP" },
+];
 const MAX_PREVIEW_HEIGHT = 720;
-/** Room kept below the player for the project name, actions and render progress. */
-const PREVIEW_CHROME = 150;
+const percent = (v: number) => `${Math.round(v * 100)}%`;
 
 /** Fields that change what the preview shows (export format does not). */
 const previewKey = (c: VideoConfig) => JSON.stringify({ ...c, export: undefined, pngFrame: undefined });
 
 export function Editor() {
   const { t } = useTranslation();
-  const { config, configError, setConfig, setNested, panel, setPanel, appConfig, selectedAyah, setSelectedAyah, setProject, projectId } =
+  const { config, configError, setConfig, setNested, panel, setPanel, appConfig, selectedAyah, setSelectedAyah, setProject, projectId, lang } =
     useEditor();
 
-  const [surahs, setSurahs] = useState<Surah[]>([]);
+  const surahs = useSurahs();
   const [reciters, setReciters] = useState<Option[]>([]);
   const [tafsirs, setTafsirs] = useState<Option[]>([]);
   const [translations, setTranslations] = useState<Option[]>([]);
@@ -39,7 +47,8 @@ export function Editor() {
   const [mediaNote, setMediaNote] = useState<string>();
   const [searching, setSearching] = useState(false);
   const events = useRef<EventSource | null>(null);
-  const stage = useRef<HTMLElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
   const [stageSize, setStageSize] = useState({ width: 400, height: 700 });
 
   useEffect(() => {
@@ -54,7 +63,6 @@ export function Editor() {
 
   useEffect(() => {
     const fail = (e: Error) => setError(e.message);
-    void api.surahs().then(setSurahs).catch(fail);
     void api.reciters().then(setReciters).catch(fail);
     void api.tafsirs().then(setTafsirs).catch(fail);
     void api.translations().then(setTranslations).catch(fail);
@@ -84,14 +92,19 @@ export function Editor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
+  useEffect(() => {
+    body.current?.scrollTo({ top: 0 });
+  }, [panel]);
+
   const name = projectName(config);
-  const maxAyah = surahs.find((s) => s.number === config.surah)?.numberOfAyahs ?? 286;
+  const surah = surahs.find((s) => s.number === config.surah);
+  const maxAyah = surah?.numberOfAyahs ?? 286;
   const caps = appConfig?.capabilities ?? { wordTimings: false, mushafLayout: false, fullTafsirCatalog: false, translations: false };
 
   const aspect = ASPECT_RATIOS[config.aspectRatio];
   const playerStyle = useMemo(() => {
-    const maxH = Math.max(200, Math.min(MAX_PREVIEW_HEIGHT, stageSize.height - PREVIEW_CHROME));
-    const scale = Math.min(maxH / aspect.height, (stageSize.width - 16) / aspect.width);
+    const maxH = Math.max(160, Math.min(MAX_PREVIEW_HEIGHT, stageSize.height));
+    const scale = Math.min(maxH / aspect.height, stageSize.width / aspect.width);
     return { width: Math.round(aspect.width * scale), height: Math.round(aspect.height * scale) };
   }, [aspect, stageSize]);
 
@@ -166,496 +179,480 @@ export function Editor() {
   const progress = Math.round((job?.progress ?? 0) * 100);
   const rendering = job && (job.status === "queued" || job.status === "rendering");
   const selectedBg = config.backgrounds[0];
+  const style = (patch: Partial<VideoConfig["style"]>) => setNested("style", { ...config.style, ...patch });
+  const audio = (patch: Partial<VideoConfig["audio"]>) => setNested("audio", { ...config.audio, ...patch });
+  const timing = (patch: Partial<VideoConfig["timing"]>) => setNested("timing", { ...config.timing, ...patch });
 
   return (
     <div className="editor">
-      <aside className="panel">
-        <div className="tabs">
+      <section className="stage" aria-label={t("preview")}>
+        <div className="stage-player" ref={stage}>
+          {/* Remotion AbsoluteFill breaks under document dir=rtl — keep player LTR-isolated */}
+          <div className="preview-stage" dir="ltr">
+            {preview ? (
+              <div className={loadingPreview ? "player loading" : "player"}>
+                <Player
+                  component={AutoAyahComposition}
+                  inputProps={{
+                    timeline: preview.timeline,
+                    config: preview.config,
+                    surahName: preview.surahName,
+                    tafsirName: preview.tafsirName,
+                    translationName: preview.translationName,
+                    basmala: preview.basmala,
+                    mushafPages: preview.mushafPages,
+                  }}
+                  durationInFrames={Math.max(1, preview.timeline.totalFrames)}
+                  fps={preview.timeline.fps}
+                  compositionWidth={preview.timeline.width}
+                  compositionHeight={preview.timeline.height}
+                  style={playerStyle}
+                  acknowledgeRemotionLicense
+                  controls
+                />
+              </div>
+            ) : (
+              <div className="player-placeholder" style={playerStyle}>
+                <Rosette size={40} />
+                <span>{t("loadingPreview")}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {configError || error || preview?.warnings?.length ? (
+          <div className="notices" role="status">
+            {configError ? <p className="notice error">{configError}</p> : null}
+            {error ? <p className="notice error">{error}</p> : null}
+            {preview?.warnings?.map((w) => (
+              <p key={w} className="notice warn">
+                {w}
+              </p>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="ayah-strip" aria-label={t("ayat")}>
+          {preview?.timeline.slides.map((s) => (
+            <button
+              type="button"
+              key={s.ayah.number}
+              className={`ayah-seg${selectedAyah === s.ayah.number ? " on" : ""}`}
+              style={{ flexGrow: s.durationInSeconds }}
+              aria-pressed={selectedAyah === s.ayah.number}
+              onClick={() => {
+                setSelectedAyah(s.ayah.number);
+                setPanel("timing");
+              }}
+            >
+              <Rosette size={30}>{localDigits(s.ayah.number, lang)}</Rosette>
+              <span className="ayah-dur">{t("seconds", { n: s.durationInSeconds.toFixed(1) })}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="inspector">
+        <div className="tool-tabs" role="tablist" aria-label={t("tools")}>
           {TABS.map((tab) => (
-            <button key={tab} type="button" className={panel === tab ? "active" : ""} onClick={() => setPanel(tab)}>
+            <button key={tab} type="button" role="tab" aria-selected={panel === tab} className={panel === tab ? "on" : ""} onClick={() => setPanel(tab)}>
               {t(tab)}
             </button>
           ))}
         </div>
 
-        {panel === "content" && (
-          <div className="fields">
-            <label>
-              {t("aspect")}
-              <select value={config.aspectRatio} onChange={(e) => setConfig({ aspectRatio: e.target.value as VideoConfig["aspectRatio"] })}>
-                {Object.entries(ASPECT_RATIOS).map(([k, v]) => (
-                  <option key={k} value={k}>
-                    {k} — {v.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {t("surah")}
-              <select value={config.surah} onChange={(e) => setConfig({ surah: Number(e.target.value), from: 1, to: 1 })}>
-                {surahs.map((s) => (
-                  <option key={s.number} value={s.number}>
-                    {s.number}. {s.englishName} — {s.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="row">
-              <label>
-                {t("from")}
-                <input
-                  type="number"
-                  min={1}
-                  max={maxAyah}
-                  value={config.from}
-                  onChange={(e) => e.target.value && setConfig({ from: Math.min(maxAyah, Number(e.target.value)) })}
-                />
-              </label>
-              <label>
-                {t("to")}
-                <input
-                  type="number"
-                  min={config.from}
-                  max={maxAyah}
-                  value={config.to}
-                  onChange={(e) => e.target.value && setConfig({ to: Math.min(maxAyah, Number(e.target.value)) })}
-                />
-              </label>
+        <div className="tool-body" ref={body} role="tabpanel">
+          {panel === "content" && (
+            <div className="fields">
+              <Group label={t("aspect")}>
+                <div className="ratios" role="radiogroup">
+                  {Object.entries(ASPECT_RATIOS).map(([k, v]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      role="radio"
+                      aria-checked={config.aspectRatio === k}
+                      className={config.aspectRatio === k ? "on" : ""}
+                      title={v.label}
+                      onClick={() => setConfig({ aspectRatio: k as VideoConfig["aspectRatio"] })}
+                    >
+                      <span className="ratio-shape" style={{ aspectRatio: `${v.width} / ${v.height}` }} />
+                      <strong>{k}</strong>
+                      <small>{v.label.split(" / ")[0]}</small>
+                    </button>
+                  ))}
+                </div>
+              </Group>
+              <Field label={t("surah")}>
+                <Select value={config.surah} onChange={(e) => setConfig({ surah: Number(e.target.value), from: 1, to: 1 })}>
+                  {surahs.map((s) => (
+                    <option key={s.number} value={s.number}>
+                      {lang === "ar" ? `${localDigits(s.number, lang)}. ${s.name}` : `${s.number}. ${s.englishName} — ${s.name}`}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <div className="pair">
+                <Stepper label={t("from")} value={config.from} min={1} max={maxAyah} onChange={(v) => setConfig({ from: v })} />
+                <Stepper label={t("to")} value={config.to} min={config.from} max={maxAyah} onChange={(v) => setConfig({ to: v })} />
+              </div>
+              <Field label={t("reciter")}>
+                <Select value={config.reciter} onChange={(e) => setConfig({ reciter: e.target.value })}>
+                  {reciters.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label={t("tafsir")}>
+                <Select value={config.tafsir ?? ""} onChange={(e) => setConfig({ tafsir: e.target.value || null })}>
+                  <option value="">{t("none")}</option>
+                  {tafsirs.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label={t("translation")}>
+                <Select value={config.translation ?? ""} onChange={(e) => setConfig({ translation: e.target.value || null })}>
+                  <option value="">{t("none")}</option>
+                  {translations.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
             </div>
-            <label>
-              {t("reciter")}
-              <select value={config.reciter} onChange={(e) => setConfig({ reciter: e.target.value })}>
-                {reciters.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {t("tafsir")}
-              <select value={config.tafsir ?? ""} onChange={(e) => setConfig({ tafsir: e.target.value || null })}>
-                <option value="">{t("none")}</option>
-                {tafsirs.map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {t("translation")}
-              <select value={config.translation ?? ""} onChange={(e) => setConfig({ translation: e.target.value || null })}>
-                <option value="">{t("none")}</option>
-                {translations.map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        )}
+          )}
 
-        {panel === "mode" && (
-          <div className="fields">
-            {MODES.map((m) => {
-              const ok = canUseMode(m, caps);
-              return (
-                <label key={m} className="choice">
-                  <span>
-                    <input type="radio" name="mode" disabled={!ok} checked={config.mode === m} onChange={() => setConfig({ mode: m })} /> {t(m)}
-                  </span>
-                  {!ok ? <span className="muted">{t("connectQul")}</span> : null}
-                </label>
-              );
-            })}
-          </div>
-        )}
-
-        {panel === "timing" && (
-          <div className="fields">
-            <label>
-              {t("timing")}
-              <select
-                value={config.timing.mode}
-                onChange={(e) => setNested("timing", { ...config.timing, mode: e.target.value as "continuous" | "reading" })}
-              >
-                <option value="continuous">{t("continuous")}</option>
-                <option value="reading">{t("reading")}</option>
-              </select>
-            </label>
-            {config.timing.mode === "reading" ? (
-              <label>
-                {t("speed")}
-                <select
-                  value={config.timing.readingSpeed}
-                  onChange={(e) => setNested("timing", { ...config.timing, readingSpeed: e.target.value as "fast" | "slow" | "verySlow" })}
-                >
-                  <option value="fast">{t("fast")}</option>
-                  <option value="slow">{t("slow")}</option>
-                  <option value="verySlow">{t("verySlow")}</option>
-                </select>
-              </label>
-            ) : null}
-            {selectedAyah != null ? (
-              <label>
-                {t("holdAyah", { n: selectedAyah })}
-                <input
-                  type="number"
-                  min={0}
-                  step={0.5}
-                  value={config.timing.ayahOverrides?.[String(selectedAyah)]?.holdSeconds ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value === "" ? undefined : Number(e.target.value);
-                    const ayahOverrides = { ...config.timing.ayahOverrides };
-                    if (v == null || Number.isNaN(v)) delete ayahOverrides[String(selectedAyah)];
-                    else ayahOverrides[String(selectedAyah)] = { holdSeconds: v };
-                    setNested("timing", { ...config.timing, ayahOverrides });
-                  }}
-                />
-              </label>
-            ) : (
-              <p className="muted">{t("selectAyahHint")}</p>
-            )}
-          </div>
-        )}
-
-        {panel === "style" && (
-          <div className="fields">
-            <label>
-              {t("theme")}
-              <select value={config.style.theme} onChange={(e) => setNested("style", { ...config.style, theme: e.target.value as "dark" | "light" })}>
-                <option value="light">{t("light")}</option>
-                <option value="dark">{t("dark")}</option>
-              </select>
-            </label>
-            <label className="choice">
-              <span>
-                <input
-                  type="checkbox"
-                  checked={config.style.tajweed}
-                  onChange={(e) => setNested("style", { ...config.style, tajweed: e.target.checked })}
-                />{" "}
-                {t("tajweedColors")}
-              </span>
-            </label>
-            <div className="row">
-              <label>
-                {t("primaryColor")}
-                <input type="color" value={config.style.primaryColor} onChange={(e) => setNested("style", { ...config.style, primaryColor: e.target.value })} />
-              </label>
-              <label>
-                {t("accentColor")}
-                <input type="color" value={config.style.accentColor} onChange={(e) => setNested("style", { ...config.style, accentColor: e.target.value })} />
-              </label>
-              <label>
-                {t("cardColor")}
-                <input type="color" value={config.style.cardColor} onChange={(e) => setNested("style", { ...config.style, cardColor: e.target.value })} />
-              </label>
+          {panel === "mode" && (
+            <div className="choices" role="radiogroup" aria-label={t("mode")}>
+              {MODES.map((m) => {
+                const ok = canUseMode(m, caps);
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    role="radio"
+                    aria-checked={config.mode === m}
+                    disabled={!ok}
+                    className={`choice${config.mode === m ? " on" : ""}`}
+                    onClick={() => setConfig({ mode: m })}
+                  >
+                    <span className="choice-dot" aria-hidden="true" />
+                    <span className="choice-text">
+                      <strong>{t(m)}</strong>
+                      <small>{ok ? t(`${m}Hint`) : t("connectQul")}</small>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            <label>
-              {t("fontSize")} ({config.style.fontSize})
-              <input
-                type="range"
-                min={32}
-                max={120}
-                value={config.style.fontSize}
-                onChange={(e) => setNested("style", { ...config.style, fontSize: Number(e.target.value) })}
+          )}
+
+          {panel === "timing" && (
+            <div className="fields">
+              <Group label={t("timing")}>
+                <Segmented
+                  value={config.timing.mode}
+                  onChange={(mode) => timing({ mode })}
+                  options={[
+                    { value: "continuous", label: t("continuous") },
+                    { value: "reading", label: t("reading") },
+                  ]}
+                />
+              </Group>
+              {config.timing.mode === "reading" ? (
+                <Group label={t("speed")}>
+                  <Segmented
+                    value={config.timing.readingSpeed}
+                    onChange={(readingSpeed) => timing({ readingSpeed })}
+                    options={[
+                      { value: "fast", label: t("fast") },
+                      { value: "slow", label: t("slow") },
+                      { value: "verySlow", label: t("verySlow") },
+                    ]}
+                  />
+                </Group>
+              ) : null}
+              {selectedAyah != null ? (
+                <Field label={t("holdAyah", { n: selectedAyah })}>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step={0.5}
+                    value={config.timing.ayahOverrides?.[String(selectedAyah)]?.holdSeconds ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value === "" ? undefined : Number(e.target.value);
+                      const ayahOverrides = { ...config.timing.ayahOverrides };
+                      if (v == null || Number.isNaN(v)) delete ayahOverrides[String(selectedAyah)];
+                      else ayahOverrides[String(selectedAyah)] = { holdSeconds: v };
+                      timing({ ayahOverrides });
+                    }}
+                  />
+                </Field>
+              ) : (
+                <p className="hint-box">{t("selectAyahHint")}</p>
+              )}
+            </div>
+          )}
+
+          {panel === "style" && (
+            <div className="fields">
+              <Group label={t("theme")}>
+                <Segmented
+                  value={config.style.theme}
+                  onChange={(theme) => style({ theme })}
+                  options={[
+                    { value: "light", label: t("light") },
+                    { value: "dark", label: t("dark") },
+                  ]}
+                />
+              </Group>
+              <div className="swatches">
+                {(
+                  [
+                    ["primaryColor", t("primaryColor")],
+                    ["accentColor", t("accentColor")],
+                    ["cardColor", t("cardColor")],
+                  ] as const
+                ).map(([k, label]) => (
+                  <label key={k} className="swatch">
+                    <input type="color" value={config.style[k]} onChange={(e) => style({ [k]: e.target.value })} />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+              <Slider label={t("fontSize")} min={32} max={120} value={config.style.fontSize} onChange={(fontSize) => style({ fontSize })} />
+              <div className="switches">
+                <Switch label={t("tajweedColors")} checked={config.style.tajweed} onChange={(tajweed) => style({ tajweed })} />
+                <Switch label={t("watermark")} checked={config.style.showWatermark} onChange={(showWatermark) => style({ showWatermark })} />
+              </div>
+              {config.style.showWatermark ? (
+                <Field label={t("watermarkText")}>
+                  <input value={config.style.watermarkText} maxLength={60} onChange={(e) => style({ watermarkText: e.target.value })} />
+                </Field>
+              ) : null}
+              <Group label={t("exportFormat")}>
+                <Segmented value={config.export} onChange={(v) => setConfig({ export: v })} options={EXPORTS} />
+              </Group>
+            </div>
+          )}
+
+          {panel === "background" && (
+            <div className="fields">
+              <Segmented
+                value={mediaKind}
+                onChange={setMediaKind}
+                options={[
+                  { value: "image", label: t("images") },
+                  { value: "video", label: t("videos") },
+                ]}
               />
-            </label>
-            <label className="choice">
-              <span>
+              <form
+                className="search"
+                role="search"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void searchBg().catch((err: Error) => setError(err.message));
+                }}
+              >
+                <Icon name="search" size={18} />
                 <input
-                  type="checkbox"
-                  checked={config.style.showWatermark}
-                  onChange={(e) => setNested("style", { ...config.style, showWatermark: e.target.checked })}
-                />{" "}
-                {t("watermark")}
-              </span>
-            </label>
-            {config.style.showWatermark ? (
-              <label>
-                {t("watermarkText")}
-                <input
-                  value={config.style.watermarkText}
-                  maxLength={60}
-                  onChange={(e) => setNested("style", { ...config.style, watermarkText: e.target.value })}
+                  type="search"
+                  enterKeyHint="search"
+                  aria-label={t("search")}
+                  value={mediaQuery}
+                  onChange={(e) => setMediaQuery(e.target.value)}
+                  placeholder={t("search")}
                 />
-              </label>
-            ) : null}
-            <label>
-              {t("exportFormat")}
-              <select value={config.export} onChange={(e) => setConfig({ export: e.target.value as VideoConfig["export"] })}>
-                <option value="mp4">MP4</option>
-                <option value="webm">WebM</option>
-                <option value="png">PNG</option>
-                <option value="srt">SRT</option>
-                <option value="batch">Batch ZIP</option>
-              </select>
-            </label>
-          </div>
-        )}
-
-        {panel === "background" && (
-          <div className="fields">
-            <div className="segmented">
-              <button type="button" className={mediaKind === "image" ? "active" : ""} onClick={() => setMediaKind("image")}>
-                {t("images")}
-              </button>
-              <button type="button" className={mediaKind === "video" ? "active" : ""} onClick={() => setMediaKind("video")}>
-                {t("videos")}
-              </button>
-            </div>
-            <form
-              className="row"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void searchBg().catch((err: Error) => setError(err.message));
-              }}
-            >
-              <input value={mediaQuery} onChange={(e) => setMediaQuery(e.target.value)} placeholder={t("search")} />
-              <button type="submit" disabled={searching}>
-                {t("search")}
-              </button>
-            </form>
-            <p className="muted">{t("peopleFiltered")}</p>
-            {mediaNote ? <p className="warning">{mediaNote}</p> : null}
-            <div className="media-grid">
-              {media.map((m) => (
+                <button type="submit" className="btn btn-quiet" disabled={searching}>
+                  {searching ? t("searching") : t("search")}
+                </button>
+              </form>
+              <p className="field-hint">{t("peopleFiltered")}</p>
+              {mediaNote ? <p className="notice warn">{mediaNote}</p> : null}
+              {media.length ? (
+                <div className="media-grid">
+                  {media.map((m) => (
+                    <button
+                      type="button"
+                      key={`${m.provider}-${m.id}`}
+                      className={`media-tile${selectedBg?.media?.id === m.id ? " on" : ""}${m.checked === false ? " unchecked" : ""}`}
+                      title={m.attribution}
+                      aria-pressed={selectedBg?.media?.id === m.id}
+                      onClick={() => applyMedia(m)}
+                    >
+                      <img src={m.previewUrl ?? m.url} alt={m.attribution ?? ""} loading="lazy" />
+                      {m.type === "video" ? (
+                        <span className="badge">
+                          <Icon name="play" size={12} />
+                        </span>
+                      ) : null}
+                      {selectedBg?.media?.id === m.id ? (
+                        <span className="tick">
+                          <Icon name="check" size={14} />
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {selectedBg?.media?.attribution ? <p className="field-hint">{selectedBg.media.attribution}</p> : null}
+              <div className="btn-row">
+                <label className="btn btn-quiet">
+                  <Icon name="upload" size={18} />
+                  {t("upload")}
+                  <input
+                    type="file"
+                    accept="image/*,video/*"
+                    hidden
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (f) void onUpload(f).catch((err: Error) => setError(err.message));
+                    }}
+                  />
+                </label>
+                <button type="button" className={`btn btn-quiet${!selectedBg ? " is-on" : ""}`} onClick={() => setNested("backgrounds", [])}>
+                  {t("solidColor")}
+                </button>
                 <button
                   type="button"
-                  key={`${m.provider}-${m.id}`}
-                  className={`media-tile ${selectedBg?.media?.id === m.id ? "selected" : ""} ${m.checked === false ? "unchecked" : ""}`}
-                  title={m.attribution}
-                  onClick={() => applyMedia(m)}
+                  className={`btn btn-quiet${selectedBg?.type === "gradient" ? " is-on" : ""}`}
+                  onClick={() =>
+                    setNested("backgrounds", [
+                      { type: "gradient", fromAyah: config.from, toAyah: config.to, gradient: [config.style.cardColor, "#ffffff"] },
+                    ])
+                  }
                 >
-                  <img src={m.previewUrl ?? m.url} alt={m.attribution ?? ""} loading="lazy" />
-                  {m.type === "video" ? <span className="badge">▶</span> : null}
+                  {t("gradient")}
                 </button>
-              ))}
+              </div>
             </div>
-            {selectedBg?.media?.attribution ? <p className="muted">{selectedBg.media.attribution}</p> : null}
-            <div className="row">
-              <label className="button secondary">
-                {t("upload")}
-                <input
-                  type="file"
-                  accept="image/*,video/*"
-                  hidden
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    e.target.value = "";
-                    if (f) void onUpload(f).catch((err: Error) => setError(err.message));
-                  }}
-                />
-              </label>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setNested("backgrounds", [])}
-              >
-                {t("solidColor")}
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() =>
-                  setNested("backgrounds", [
-                    { type: "gradient", fromAyah: config.from, toAyah: config.to, gradient: [config.style.cardColor, "#ffffff"] },
-                  ])
-                }
-              >
-                {t("gradient")}
-              </button>
-            </div>
-          </div>
-        )}
+          )}
 
-        {panel === "audio" && (
-          <div className="fields">
-            <label>
-              {t("recitationVolume")}
-              <input
-                type="range"
+          {panel === "audio" && (
+            <div className="fields">
+              <Slider
+                label={t("recitationVolume")}
                 min={0}
                 max={1}
                 step={0.05}
                 value={config.audio.recitationVolume}
-                onChange={(e) => setNested("audio", { ...config.audio, recitationVolume: Number(e.target.value) })}
+                display={percent(config.audio.recitationVolume)}
+                onChange={(recitationVolume) => audio({ recitationVolume })}
               />
-            </label>
-            <label>
-              {t("ambience")}
-              <select value={config.audio.ambienceId ?? ""} onChange={(e) => setNested("audio", { ...config.audio, ambienceId: e.target.value || null })}>
-                <option value="">{t("none")}</option>
-                {AMBIENCE_PRESETS.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {document.documentElement.lang === "ar" ? a.nameAr : a.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {t("ambienceVolume")}
-              <input
-                type="range"
+              <Field label={t("ambience")}>
+                <Select value={config.audio.ambienceId ?? ""} onChange={(e) => audio({ ambienceId: e.target.value || null })}>
+                  <option value="">{t("none")}</option>
+                  {AMBIENCE_PRESETS.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {lang === "ar" ? a.nameAr : a.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Slider
+                label={t("ambienceVolume")}
                 min={0}
                 max={1}
                 step={0.05}
                 disabled={!config.audio.ambienceId}
                 value={config.audio.ambienceVolume}
-                onChange={(e) => setNested("audio", { ...config.audio, ambienceVolume: Number(e.target.value) })}
+                display={percent(config.audio.ambienceVolume)}
+                onChange={(ambienceVolume) => audio({ ambienceVolume })}
               />
-            </label>
-            <label className="choice">
-              <span>
-                <input
-                  type="checkbox"
+              <div className="switches">
+                <Switch
+                  label={t("bgSound")}
                   checked={config.audio.backgroundVideoSound}
-                  onChange={(e) => setNested("audio", { ...config.audio, backgroundVideoSound: e.target.checked })}
-                />{" "}
-                {t("bgSound")}
-              </span>
-            </label>
-            <label>
-              {t("bgVolume")}
-              <input
-                type="range"
+                  onChange={(backgroundVideoSound) => audio({ backgroundVideoSound })}
+                />
+              </div>
+              <Slider
+                label={t("bgVolume")}
                 min={0}
                 max={1}
                 step={0.05}
                 disabled={!config.audio.backgroundVideoSound}
                 value={config.audio.backgroundVideoVolume}
-                onChange={(e) => setNested("audio", { ...config.audio, backgroundVideoVolume: Number(e.target.value) })}
+                display={percent(config.audio.backgroundVideoVolume)}
+                onChange={(backgroundVideoVolume) => audio({ backgroundVideoVolume })}
               />
-            </label>
-          </div>
-        )}
-      </aside>
-
-      <main className="preview" ref={stage}>
-        {/* Remotion AbsoluteFill breaks under document dir=rtl — keep player LTR-isolated */}
-        <div className="preview-stage" dir="ltr">
-          {configError ? <p className="error">{configError}</p> : null}
-          {error ? <p className="error">{error}</p> : null}
-          {preview?.warnings?.length ? <p className="warning">{preview.warnings.join(" · ")}</p> : null}
-          {preview ? (
-            <div className={loadingPreview ? "player loading" : "player"}>
-              <Player
-                component={AutoAyahComposition}
-                inputProps={{
-                  timeline: preview.timeline,
-                  config: preview.config,
-                  surahName: preview.surahName,
-                  tafsirName: preview.tafsirName,
-                  translationName: preview.translationName,
-                  basmala: preview.basmala,
-                  mushafPages: preview.mushafPages,
-                }}
-                durationInFrames={Math.max(1, preview.timeline.totalFrames)}
-                fps={preview.timeline.fps}
-                compositionWidth={preview.timeline.width}
-                compositionHeight={preview.timeline.height}
-                style={playerStyle}
-                acknowledgeRemotionLicense
-                controls
-              />
-            </div>
-          ) : (
-            <div className="player-placeholder" style={playerStyle}>
-              <p className="muted">{t("loadingPreview")}</p>
             </div>
           )}
-          <div className="row actions" dir="auto">
-            <code className="project-name" title={name}>
-              {name}
-            </code>
-            <button type="button" className="secondary" onClick={() => void saveProject().catch((e: Error) => setError(e.message))}>
-              {t("saveProject")}
+        </div>
+      </section>
+
+      <footer className="action-bar">
+        {job?.status === "done" && job.outputUrl ? (
+          <div className="result">
+            {/\.(mp4|webm)$/.test(job.outputUrl) ? <video src={job.outputUrl} controls playsInline /> : null}
+            {job.outputUrl.endsWith(".png") ? <img src={job.outputUrl} alt="" /> : null}
+            <div className="result-text">
+              <strong>{t("ready")}</strong>
+              <a className="btn btn-quiet" href={job.outputUrl} download>
+                <Icon name="download" size={18} />
+                {t("download")}
+              </a>
+            </div>
+            <button type="button" className="icon-btn" aria-label={t("close")} onClick={() => setJob(undefined)}>
+              <Icon name="close" size={18} />
             </button>
-            <button type="button" onClick={() => void generate().catch((e: Error) => setError(e.message))} disabled={!preview || Boolean(rendering)}>
-              {t("generate")}
-            </button>
-            {status ? <span className="muted">{status}</span> : null}
           </div>
-          {job && job.status !== "done" ? (
-            <div className="job">
-              <div className="progress">
-                <span style={{ width: `${progress}%` }} />
-              </div>
-              <div className="row">
-                <span className="muted">
+        ) : null}
+        <div className="action-row">
+          <div className="action-info">
+            {rendering ? (
+              <>
+                <span className="action-status">
                   {job.status === "queued" && job.queuePosition ? t("queued", { pos: job.queuePosition }) : `${t("rendering")} ${progress}%`}
                 </span>
-                {rendering ? (
-                  <button type="button" className="secondary" onClick={() => void api.cancelJob(job.id).then(setJob)}>
-                    {t("cancel")}
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-          {job?.status === "done" && job.outputUrl ? (
-            <div className="job">
-              {/\.(mp4|webm)$/.test(job.outputUrl) ? <video src={job.outputUrl} controls width={300} /> : null}
-              {job.outputUrl.endsWith(".png") ? <img src={job.outputUrl} alt="" width={300} /> : null}
-              <p>
-                <a href={job.outputUrl} download>
-                  {t("download")}
-                </a>
-              </p>
-            </div>
-          ) : null}
-        </div>
-      </main>
-
-      <footer className="timeline">
-        <div className="track">
-          <div className="track-label">{t("ayat")}</div>
-          <div className="track-lane">
-            {preview?.timeline.slides.map((s) => (
-              <button
-                type="button"
-                key={s.ayah.number}
-                className={`segment ${selectedAyah === s.ayah.number ? "selected" : ""}`}
-                style={{ flex: s.durationInSeconds }}
-                onClick={() => {
-                  setSelectedAyah(s.ayah.number);
-                  setPanel("timing");
-                }}
-              >
-                {s.ayah.number} · {s.durationInSeconds.toFixed(1)}s
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="track">
-          <div className="track-label">{t("background")}</div>
-          <div className="track-lane">
-            {config.backgrounds.length ? (
-              config.backgrounds.map((b, i) => (
-                <div key={i} className="segment bg">
-                  {b.type} {b.fromAyah}–{b.toAyah}
-                </div>
-              ))
+                <span className="progress">
+                  <span style={{ width: `${progress}%` }} />
+                </span>
+              </>
             ) : (
-              <div className="segment bg">{t("default")}</div>
+              <span className="project-name" title={name}>
+                {status ?? (
+                  <>
+                    <strong>{lang === "ar" ? (surah?.name ?? config.surah) : (surah?.englishName ?? config.surah)}</strong>{" "}
+                    <bdi>{config.from === config.to ? config.from : `${config.from}–${config.to}`}</bdi>
+                    <span className="project-sub">
+                      {t(config.mode)} · {config.aspectRatio}
+                    </span>
+                  </>
+                )}
+              </span>
             )}
           </div>
-        </div>
-        <div className="track">
-          <div className="track-label">{t("audio")}</div>
-          <div className="track-lane">
-            <div className="segment audio">
-              {t("reciter")} ×{config.audio.recitationVolume}
-            </div>
-            {config.audio.ambienceId ? (
-              <div className="segment audio">
-                {config.audio.ambienceId} ×{config.audio.ambienceVolume}
-              </div>
-            ) : null}
-          </div>
+          {rendering ? (
+            <button type="button" className="btn btn-quiet" onClick={() => void api.cancelJob(job.id).then(setJob)}>
+              {t("cancel")}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-quiet"
+              aria-label={t("saveProject")}
+              onClick={() => void saveProject().catch((e: Error) => setError(e.message))}>
+              <Icon name="save" size={18} />
+              <span className="hide-xs">{t("saveProject")}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void generate().catch((e: Error) => setError(e.message))}
+            disabled={!preview || Boolean(rendering)}
+          >
+            {t("generate")}
+          </button>
         </div>
       </footer>
     </div>

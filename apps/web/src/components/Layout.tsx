@@ -1,47 +1,73 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useEditor } from "../store";
+import { Icon, Rosette, type IconName } from "./Icon";
 
 export function Layout() {
   const { t, i18n } = useTranslation();
   const { appConfig, theme, setTheme, lang, setLang } = useEditor();
+  const { pathname } = useLocation();
+
+  const links: { to: string; label: string; icon: IconName }[] = [
+    { to: "/", label: t("editor"), icon: "create" },
+    { to: "/projects", label: t("projects"), icon: "projects" },
+    { to: "/renders", label: t("renders"), icon: "renders" },
+    ...(appConfig?.showDownloads ? [{ to: "/downloads", label: t("downloads"), icon: "library" as const }] : []),
+    { to: "/settings", label: t("settings"), icon: "settings" },
+  ];
+
+  const toggles = (
+    <div className="shell-toggles">
+      <button
+        type="button"
+        className="icon-btn"
+        aria-label={theme === "dark" ? t("light") : t("dark")}
+        title={theme === "dark" ? t("light") : t("dark")}
+        onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+      >
+        <Icon name={theme === "dark" ? "sun" : "moon"} size={20} />
+      </button>
+      <button
+        type="button"
+        className="icon-btn lang-btn"
+        aria-label={t("language")}
+        onClick={() => {
+          const next = lang === "en" ? "ar" : "en";
+          setLang(next);
+          void i18n.changeLanguage(next);
+        }}
+      >
+        {lang === "en" ? "ع" : "EN"}
+      </button>
+    </div>
+  );
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div className="brand">{t("brand")}</div>
-        <nav>
-          <NavLink to="/" end>
-            {t("editor")}
-          </NavLink>
-          <NavLink to="/projects">{t("projects")}</NavLink>
-          <NavLink to="/renders">{t("renders")}</NavLink>
-          {appConfig?.showDownloads ? <NavLink to="/downloads">{t("downloads")}</NavLink> : null}
-          <NavLink to="/settings">{t("settings")}</NavLink>
-        </nav>
-        <button
-          className="secondary"
-          type="button"
-          onClick={() => {
-            const next = theme === "dark" ? "light" : "dark";
-            setTheme(next);
-          }}
-        >
-          {theme === "dark" ? t("light") : t("dark")}
-        </button>
-        <button
-          className="secondary"
-          type="button"
-          onClick={() => {
-            const next = lang === "en" ? "ar" : "en";
-            setLang(next);
-            void i18n.changeLanguage(next);
-          }}
-        >
-          {lang === "en" ? "عربي" : "EN"}
-        </button>
+    <div className={pathname === "/" ? "shell shell--editor" : "shell"}>
+      <header className="shell-bar">
+        <div className="brand">
+          <Rosette size={26} />
+          <span>{t("brand")}</span>
+        </div>
+        {toggles}
       </header>
-      <Outlet />
+
+      <nav className="shell-nav" aria-label={t("brand")}>
+        <div className="brand rail-only">
+          <Rosette size={30} />
+        </div>
+        {links.map((l) => (
+          <NavLink key={l.to} to={l.to} end={l.to === "/"} className="nav-item">
+            <Icon name={l.icon} />
+            <span>{l.label}</span>
+          </NavLink>
+        ))}
+        <div className="rail-only rail-foot">{toggles}</div>
+      </nav>
+
+      <div className="shell-main">
+        <Outlet />
+      </div>
     </div>
   );
 }

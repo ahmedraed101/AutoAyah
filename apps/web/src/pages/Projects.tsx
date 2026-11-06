@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { Project } from "@autoayah/core";
 import { api } from "../api";
 import { browserStore } from "../browserStore";
+import { Icon } from "../components/Icon";
+import { Empty, SurahLabel } from "../components/SurahLabel";
 import { useEditor } from "../store";
 
 export function Projects() {
@@ -49,41 +51,64 @@ export function Projects() {
 
   return (
     <div className="page">
-      <h1>{t("projects")}</h1>
-      {error ? <p className="error">{error}</p> : null}
-      <label className="button secondary" style={{ display: "inline-flex", marginBottom: "0.75rem" }}>
-        {t("importJson")}
-        <input
-          type="file"
-          accept="application/json,.json"
-          hidden
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            e.target.value = "";
-            if (f) void onImport(f).catch((err: Error) => setError(err.message));
-          }}
+      <header className="page-head">
+        <h1>{t("projects")}</h1>
+        <label className="btn btn-quiet">
+          <Icon name="upload" size={18} />
+          {t("importJson")}
+          <input
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void onImport(f).catch((err: Error) => setError(err.message));
+            }}
+          />
+        </label>
+      </header>
+      {error ? <p className="notice error">{error}</p> : null}
+      <ul className="list">
+        {items.map((p) => (
+          <li key={p.id} className="list-item">
+            <button type="button" className="list-main" onClick={() => open(p)}>
+              <SurahLabel config={p.config} meta={<>{t(p.config.mode)} · {new Date(p.updatedAt).toLocaleDateString()}</>} />
+            </button>
+            <div className="list-actions">
+              <a
+                className="btn btn-quiet"
+                href={`data:application/json,${encodeURIComponent(browserStore.exportProject(p))}`}
+                download={`${p.name}.autoayah.json`}
+                aria-label={t("export")}
+              >
+                <Icon name="download" size={18} />
+                <span className="label-wide">{t("export")}</span>
+              </a>
+              <button
+                type="button"
+                className="btn btn-quiet danger"
+                aria-label={t("delete")}
+                onClick={() => void remove(p.id).catch((e: Error) => setError(e.message))}
+              >
+                <Icon name="trash" size={18} />
+                <span className="label-wide">{t("delete")}</span>
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {!items.length ? (
+        <Empty
+          title={t("noProjects")}
+          hint={t("noProjectsHint")}
+          action={
+            <Link className="btn btn-primary" to="/">
+              {t("goToEditor")}
+            </Link>
+          }
         />
-      </label>
-      {items.map((p) => (
-        <div key={p.id} className="card list-row">
-          <div className="grow">
-            <strong>{p.name}</strong>
-            <p className="muted">
-              {p.config.surah}:{p.config.from}-{p.config.to} · {t(p.config.mode)} · {new Date(p.updatedAt).toLocaleString()}
-            </p>
-          </div>
-          <button type="button" onClick={() => open(p)}>
-            {t("open")}
-          </button>
-          <a href={`data:application/json,${encodeURIComponent(browserStore.exportProject(p))}`} download={`${p.name}.autoayah.json`}>
-            {t("export")}
-          </a>
-          <button type="button" className="secondary" onClick={() => void remove(p.id).catch((e: Error) => setError(e.message))}>
-            {t("delete")}
-          </button>
-        </div>
-      ))}
-      {!items.length ? <p className="muted">{t("noProjects")}</p> : null}
+      ) : null}
     </div>
   );
 }
