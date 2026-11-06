@@ -3,5 +3,28 @@ services:
     build: .
     ports:
       - "3737:3737"
+    env_file:
+      - .env
+    environment:
+      APP_MODE: ${APP_MODE:-self_hosted}
+      PORT: 3737
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3737}
+      DATA_DIR: /app/data
     volumes:
-      - ./out:/app/out
+      - ./data:/app/data
+    restart: unless-stopped
+
+  # Optional HTTPS for LAN PWA install
+  # caddy:
+  #   image: caddy:2
+  #   ports:
+  #     - "443:443"
+  #     - "80:80"
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile
+  #     - caddy_data:/data
+  #   depends_on:
+  #     - autoayah
+
+# volumes:
+#   caddy_data:

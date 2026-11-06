@@ -1,0 +1,49 @@
+# AutoAyah
+
+Self-hostable Quran video editor (PWA). Generate vertical/horizontal MP4s with recitation and optional tafsir.
+
+## Base URL
+
+Default: http://localhost:3737
+
+## Key endpoints
+
+- GET /api/health
+- GET /api/config — appMode, storageMode, capabilities
+- GET /api/surahs | /api/reciters | /api/tafsirs | /api/translations
+- POST /api/preview — body: VideoConfig → timeline + props (no render)
+- POST /api/jobs — enqueue render
+- GET /api/jobs/:id
+- GET /api/jobs/:id/events — SSE progress
+- POST /api/jobs/:id/cancel | /api/jobs/:id/retry, DELETE /api/jobs/:id
+- POST /api/media/search — { query, kind: "image"|"video" } → people-free stock results
+- GET /openapi.json
+- POST /mcp — MCP (JSON-RPC 2.0, streamable HTTP): initialize, tools/list, tools/call
+- GET /mcp/tools, POST /mcp/call — { name, arguments } plain-REST shim of the same tools
+
+MCP tools: list_capabilities, find_ayat, list_reciters, list_tafsirs, list_translations,
+preview_video, render_video, get_job.
+
+When APP_PASSWORD is set, send the session token as `Authorization: Bearer <token>`
+(from POST /api/auth/login).
+
+## VideoConfig (minimal)
+
+```json
+{
+  "surah": 25,
+  "from": 7,
+  "to": 8,
+  "reciter": "Alafasy_128kbps",
+  "tafsir": "ar.muyassar",
+  "mode": "ayahTafsir",
+  "aspectRatio": "9:16",
+  "export": "mp4"
+}
+```
+
+`mushafPage` shows the scanned printed Madani page (quran.app public images + ayah coordinates), with a rebuilt 15-line text page as fallback. `wordHighlight` uses QF word timings when connected, otherwise estimated timing.
+
+## CLI
+
+`autoayah render 25:7-10 --mode ayahTafsir --aspect 9:16`

@@ -1,4 +1,14 @@
 node_modules
 dist
 out
+/data/
+apps/*/data/
+.secret
 .DS_Store
+.env
+*.log
+.turbo
+coverage
+playwright-report
+test-results
+apps/web/dev-dist

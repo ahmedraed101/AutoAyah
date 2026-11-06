@@ -1,0 +1,36 @@
+{
+  "name": "@autoayah/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "NODE_ENV=production tsx src/index.ts"
+  },
+  "dependencies": {
+    "@autoayah/core": "workspace:*",
+    "@autoayah/data": "workspace:*",
+    "@autoayah/media": "workspace:*",
+    "@autoayah/templates": "workspace:*",
+    "@remotion/bundler": "^4.0.541",
+    "@remotion/renderer": "^4.0.541",
+    "archiver": "^7.0.1",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.25.2"
+  },
+  "devDependencies": {
+    "@types/archiver": "^6.0.3",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.18.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.3"
+  }
+}
