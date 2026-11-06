@@ -16,6 +16,28 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
 export type MediaResult = MediaRef & { type: "image" | "video"; checked?: boolean };
 export type PreviewResult = CompositionProps & { warnings: string[] };
 
+export type LibraryType = "recitation" | "mushaf" | "tafsir" | "translation" | "text" | "imports" | "app";
+export type LibraryGroup = {
+  type: LibraryType;
+  id: string;
+  name: string;
+  nameAr?: string;
+  language?: string;
+  bytes: number;
+  files: number;
+  surahs: { surah: number; have: number; total: number; bytes: number }[];
+  pages: number[];
+};
+export type DownloadRequest = { type: "recitation" | "mushaf" | "tafsir" | "translation"; id?: string; surahFrom: number; surahTo: number };
+export type DownloadTask = DownloadRequest & {
+  taskId: string;
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
+  done: number;
+  total: number;
+  failed: number;
+  error?: string;
+};
+
 export const api = {
   config: () => json<AppConfig>("/api/config"),
   surahs: () => json<{ number: number; name: string; englishName: string; numberOfAyahs: number }[]>("/api/surahs"),
@@ -38,9 +60,11 @@ export const api = {
   saveKeys: (keys: Record<string, string | null>) => json<{ ok: boolean }>("/api/keys", { method: "PUT", body: JSON.stringify(keys) }),
   testQf: (keys: { qfClientId?: string; qfClientSecret?: string }) =>
     json<{ ok: boolean; message: string }>("/api/qf/test", { method: "POST", body: JSON.stringify(keys) }),
-  library: () =>
-    json<{ items: { key: string; kind: string; size: number; source: string; lastUsed: string }[]; totalBytes: number }>("/api/library"),
-  deleteLibrary: (key: string) => json<{ ok: boolean }>(`/api/library/${encodeURIComponent(key)}`, { method: "DELETE" }),
+  library: () => json<{ groups: LibraryGroup[]; totalBytes: number; downloads: DownloadTask[] }>("/api/library"),
+  removeLibrary: (target: { type: LibraryType; id: string; surah?: number }) =>
+    json<{ removed: number }>("/api/library/remove", { method: "POST", body: JSON.stringify(target) }),
+  startDownload: (req: DownloadRequest) => json<DownloadTask>("/api/library/downloads", { method: "POST", body: JSON.stringify(req) }),
+  dismissDownload: (taskId: string) => json<{ ok: boolean }>(`/api/library/downloads/${taskId}`, { method: "DELETE" }),
   importLibrary: (file: File) => {
     const fd = new FormData();
     fd.append("file", file);

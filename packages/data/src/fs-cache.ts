@@ -59,6 +59,12 @@ export function createFsCache(dataDir: string): CacheStore {
       entry.lastUsed = new Date().toISOString();
       saveSoon();
     },
+    async pin(key) {
+      const entry = index[key];
+      if (!entry || entry.pinned) return;
+      entry.pinned = true;
+      saveSoon();
+    },
     async remove(key) {
       const entry = index[key];
       if (!entry) return;
@@ -94,6 +100,19 @@ export function createFsCache(dataDir: string): CacheStore {
     },
   };
   return store;
+}
+
+/** A view of the cache that pins everything read or written through it, for explicit downloads. */
+export function pinningCache(cache: CacheStore): CacheStore {
+  return {
+    ...cache,
+    async readFile(key) {
+      const hit = await cache.readFile(key);
+      if (hit) await cache.pin(key);
+      return hit;
+    },
+    writeFile: (key, kind, source, data, _pinned, meta) => cache.writeFile(key, kind, source, data, true, meta),
+  };
 }
 
 /** Evict least-recently-used unpinned entries until under maxBytes. */

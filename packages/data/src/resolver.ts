@@ -35,6 +35,7 @@ import {
   type QcRecitation,
   type QcResource,
 } from "./quran-com.js";
+import type { LibraryNames } from "./library.js";
 import type { CacheKind, CacheStore, ResolveOptions, Resolver } from "./types.js";
 
 const QURAN_EDITION = "quran-uthmani";
@@ -279,6 +280,12 @@ export function createResolver(opts: ResolveOptions): Resolver {
     return ayahInfoPath;
   }
 
+  async function mushafLayout(page: number) {
+    const surahs = await getSurahs();
+    const ayahCount = (n: number) => surahs.find((s) => s.number === n)?.numberOfAyahs ?? 0;
+    return cachedJson<MushafLine[]>(cache, `mushaf:v2:${page}`, "mushaf_layout", "quran.com", () => fetchMushafPage(page, ayahCount));
+  }
+
   async function pageScan(page: number, lines: MushafLine[]) {
     try {
       const [{ width, height }, dbPath] = await Promise.all([getMushafImage(page), getAyahInfoPath()]);
@@ -363,6 +370,31 @@ export function createResolver(opts: ResolveOptions): Resolver {
     return [...PUBLIC_TRANSLATIONS, ...qc];
   }
 
+  async function libraryNames(): Promise<LibraryNames> {
+    const [verse, chapter, tafsirs, translations] = await Promise.all([verseRecitations(), chapterReciters(), qcTafsirs(), qcTranslations()]);
+    const named = (r: QcRecitation) => ({ name: `${r.name}${styleLabel(r.style)}`, nameAr: r.nameAr ? `${r.nameAr}${styleLabel(r.style)}` : undefined });
+    const reciters: LibraryNames["reciters"] = {};
+    for (const r of chapter) reciters[`qdcch-${r.id}`] = named(r);
+    for (const r of verse) reciters[`qdc-${r.id}`] = named(r);
+    for (const r of DEFAULT_RECITERS) {
+      const twin = verse.find((v) => v.id === r.qfRecitationId);
+      reciters[r.id] = { name: r.name, nameAr: twin?.nameAr ? named(twin).nameAr : undefined };
+    }
+    const resources = (list: { id: string; name: string; language?: string }[]) => Object.fromEntries(list.map((t) => [t.id, t]));
+    const qulTafsirs = (await cache.list({ kind: "tafsir" }))
+      .filter((e) => e.source === "qul")
+      .map((e) => ({ id: e.key, name: String(e.meta?.name ?? e.key), language: String(e.meta?.language ?? "ar") }));
+    return {
+      reciters,
+      tafsirs: resources([
+        ...PUBLIC_TAFSIRS,
+        ...tafsirs.map((t) => ({ id: `qc-${t.id}`, name: QC_TAFSIR_NAMES_AR[t.id] ?? t.name, language: t.language })),
+        ...qulTafsirs,
+      ]),
+      translations: resources([...PUBLIC_TRANSLATIONS, ...translations.map((t) => ({ id: `qc-${t.id}`, name: t.name, language: t.language }))]),
+    };
+  }
+
   return {
     getSurahs,
     getReciters,
@@ -371,6 +403,29 @@ export function createResolver(opts: ResolveOptions): Resolver {
     capabilities,
     getAudio,
     getMushafImage,
+    libraryNames,
+    async prefetchSurahText(surah) {
+      await getEditions(surah, [QURAN_EDITION, TAJWEED_EDITION]);
+    },
+    async prefetchRecitationIndex(reciter, surah) {
+      const r = parseReciter(reciter);
+      if (r.qcId == null) return;
+      if (r.kind === "chapter") await chapterAudio(r.qcId, surah);
+      else await verseAudio(r.qcId, surah);
+    },
+    async prefetchEdition(kind, id, surah) {
+      const qcId = qcResourceId(id);
+      if (qcId == null) await getEditions(surah, [id]);
+      else if (kind === "tafsir") await qcTafsirText(qcId, surah);
+      else await qcTranslationText(qcId, surah);
+    },
+    async mushafPagesOf(surah) {
+      const ayahs = (await getEditions(surah, [QURAN_EDITION])).get(QURAN_EDITION)?.ayahs ?? [];
+      return [...new Set(ayahs.map((a) => a.page).filter((p): p is number => p != null))];
+    },
+    async prefetchMushafPage(page) {
+      await Promise.all([mushafLayout(page), getMushafImage(page), getAyahInfoPath(), getEditions(1, [QURAN_EDITION])]);
+    },
     async importQulFile(filename, data, kind: CacheKind) {
       const key = `qul:${filename}`;
       return cache.writeFile(key, kind === "other" ? "qul_import" : kind, "qul", data, true, {
@@ -442,14 +497,11 @@ export function createResolver(opts: ResolveOptions): Resolver {
       let mushafPages: ResolvedClip["mushafPages"];
       if (isMushafMode(config.mode)) {
         const pages = [...new Set(ayat.map((a) => a.page).filter((p): p is number => p != null))];
-        const ayahCount = (n: number) => surahs.find((s) => s.number === n)?.numberOfAyahs ?? 0;
         // The Basmala line comes from Al-Fatiha 1:1 — fetched, never typed in.
         const fatiha = (await getEditions(1, [QURAN_EDITION])).get(QURAN_EDITION)?.ayahs.find((a) => a.n === 1)?.text;
         mushafPages = await Promise.all(
           pages.map(async (page) => {
-            const lines = await cachedJson<MushafLine[]>(cache, `mushaf:v2:${page}`, "mushaf_layout", "quran.com", () =>
-              fetchMushafPage(page, ayahCount),
-            );
+            const lines = await mushafLayout(page);
             const surahNames: Record<string, string> = {};
             for (const line of lines) {
               if (line.kind !== "ayah") surahNames[line.surah] = surahs.find((s) => s.number === line.surah)?.name ?? "";

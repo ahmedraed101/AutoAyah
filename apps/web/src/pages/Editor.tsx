@@ -18,29 +18,9 @@ import { Field, Group, Segmented, Select, Slider, Stepper, Switch } from "../com
 import { Icon, Rosette } from "../components/Icon";
 import { useEditor, type Panel } from "../store";
 import { localDigits, useSurahs } from "../surahs";
+import { groupBy, languageName } from "../catalog";
 
 type Option = { id: string; name: string; nameAr?: string; language?: string; hasWordTimings?: boolean };
-
-function groupBy<T>(items: T[], key: (item: T) => string): [string, T[]][] {
-  const groups = new Map<string, T[]>();
-  for (const item of items) {
-    const k = key(item);
-    groups.set(k, [...(groups.get(k) ?? []), item]);
-  }
-  return [...groups];
-}
-
-/** Catalogs mix ISO codes ("ar") and English names ("arabic"); show one localized label per language. */
-const LANGUAGE_CODES: Record<string, string> = { arabic: "ar", english: "en", urdu: "ur", bengali: "bn", russian: "ru", kurdish: "ku" };
-function languageName(language: string | undefined, uiLang: string): string {
-  const raw = (language ?? "").toLowerCase();
-  const code = LANGUAGE_CODES[raw] ?? raw;
-  try {
-    return (code.length <= 3 && new Intl.DisplayNames([uiLang], { type: "language" }).of(code)) || language || "—";
-  } catch {
-    return language || "—";
-  }
-}
 
 const TABS: Panel[] = ["content", "mode", "timing", "style", "background", "audio"];
 const MODES: VideoMode[] = ["ayah", "ayahTafsir", "mushafPage", "mushafWords", "wordHighlight"];

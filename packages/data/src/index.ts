@@ -8,3 +8,4 @@ export * from "./mushaf.js";
 export * from "./mushaf-images.js";
 export * from "./quran-com.js";
 export * from "./mp3.js";
+export * from "./library.js";

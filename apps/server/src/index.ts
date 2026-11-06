@@ -6,9 +6,18 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
 import multer from "multer";
-import { ZodError } from "zod";
+import { ZodError, z } from "zod";
 import { VideoConfigSchema, renderFileName, type Job, type VideoConfig } from "@autoayah/core";
-import { createFsCache, createResolver, ensureDataDirs, evictLru, testQfConnection } from "@autoayah/data";
+import {
+  createFsCache,
+  createResolver,
+  ensureDataDirs,
+  entryMatches,
+  evictLru,
+  pinningCache,
+  summarizeLibrary,
+  testQfConnection,
+} from "@autoayah/data";
 import {
   BUNDLED_AMBIENCE,
   detectPeopleInImage,
@@ -21,6 +30,7 @@ import {
 } from "@autoayah/media";
 import { authMiddleware, authStatus, loginHandler } from "./auth.js";
 import { openDb } from "./db/index.js";
+import { DownloadManager, DownloadRequestSchema } from "./downloads.js";
 import { LEGACY_DEFAULT_SECRET, loadEnv } from "./env.js";
 import { mountMcp } from "./mcp.js";
 import { openApiSpec } from "./openapi.js";
@@ -62,6 +72,14 @@ function qfCreds() {
 function resolver() {
   return createResolver({ cache, qf: qfCreds(), dataDir: env.dataDir });
 }
+
+const downloads = new DownloadManager(() => createResolver({ cache: pinningCache(cache), qf: qfCreds(), dataDir: env.dataDir }));
+
+const LibraryTargetSchema = z.object({
+  type: z.enum(["recitation", "mushaf", "tafsir", "translation", "text", "imports", "app"]),
+  id: z.string().min(1).max(300),
+  surah: z.number().int().min(1).max(114).optional(),
+});
 
 const limits = { maxSeconds: env.MAX_VIDEO_SECONDS };
 const assetBaseUrl = `http://127.0.0.1:${env.PORT}`;
@@ -314,22 +332,38 @@ app.post(
   }),
 );
 
-// Downloads / cache library
+// Downloads / offline library
 app.get(
   "/api/library",
   handle(async (_req, res) => {
     if (!env.showDownloads) return notFound(res);
-    res.json({ items: await cache.list(), totalBytes: await cache.totalBytes() });
+    const r = resolver();
+    const [entries, surahs, names] = await Promise.all([cache.list(), r.getSurahs().catch(() => []), r.libraryNames()]);
+    const groups = summarizeLibrary(entries, new Map(surahs.map((s) => [s.number, s.numberOfAyahs])), names);
+    res.json({ groups, totalBytes: await cache.totalBytes(), downloads: downloads.list() });
   }),
 );
-app.delete(
-  "/api/library/:key",
+app.post(
+  "/api/library/remove",
   handle(async (req, res) => {
     if (!env.showDownloads) return notFound(res);
-    await cache.remove(String(req.params.key));
-    res.json({ ok: true });
+    const target = LibraryTargetSchema.parse(req.body);
+    const doomed = (await cache.list()).filter((e) => entryMatches(e, target));
+    for (const e of doomed) await cache.remove(e.key);
+    res.json({ removed: doomed.length });
   }),
 );
+app.post(
+  "/api/library/downloads",
+  handle(async (req, res) => {
+    if (!env.showDownloads) return notFound(res);
+    res.json(downloads.start(DownloadRequestSchema.parse(req.body)));
+  }),
+);
+app.delete("/api/library/downloads/:id", (req, res) => {
+  if (!env.showDownloads || !downloads.dismiss(req.params.id)) return notFound(res);
+  res.json({ ok: true });
+});
 app.post(
   "/api/library/import",
   multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } }).single("file"),

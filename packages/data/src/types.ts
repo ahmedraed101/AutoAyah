@@ -1,4 +1,5 @@
 import type { Capabilities, ResolvedClip, VideoConfig } from "@autoayah/core";
+import type { LibraryNames } from "./library.js";
 
 export type CacheKind =
   | "ayah_text"
@@ -27,6 +28,8 @@ export type CacheStore = {
   get(key: string): Promise<CacheEntry | null>;
   put(entry: Omit<CacheEntry, "createdAt" | "lastUsed"> & { createdAt?: string }): Promise<CacheEntry>;
   touch(key: string): Promise<void>;
+  /** Protect an entry from LRU eviction. */
+  pin(key: string): Promise<void>;
   remove(key: string): Promise<void>;
   list(filter?: { kind?: CacheKind }): Promise<CacheEntry[]>;
   totalBytes(): Promise<number>;
@@ -62,4 +65,14 @@ export type Resolver = {
   /** Scanned Mushaf page from the local cache, downloading it once if needed. */
   getMushafImage(page: number): Promise<{ data: Buffer; width: number; height: number }>;
   importQulFile(filename: string, data: Buffer, kind: CacheKind): Promise<CacheEntry>;
+  /** Display names for every id the library can hold, including ones hidden from the pickers. */
+  libraryNames(): Promise<LibraryNames>;
+  /** Uthmani + tajweed text of a whole surah. */
+  prefetchSurahText(surah: number): Promise<void>;
+  /** Word timings and audio file index for one reciter's surah, when the reciter has them. */
+  prefetchRecitationIndex(reciter: string, surah: number): Promise<void>;
+  prefetchEdition(kind: "tafsir" | "translation", id: string, surah: number): Promise<void>;
+  mushafPagesOf(surah: number): Promise<number[]>;
+  /** Layout, scan and word boxes for one Mushaf page. */
+  prefetchMushafPage(page: number): Promise<void>;
 };
