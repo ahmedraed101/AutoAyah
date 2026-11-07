@@ -63,12 +63,17 @@ export function openApiSpec(publicUrl: string) {
               "application/json": {
                 schema: {
                   type: "object",
-                  properties: { query: { type: "string" }, kind: { type: "string", enum: ["image", "video"] }, keys: { type: "object" } },
+                  properties: {
+                    query: { type: "string" },
+                    kind: { type: "string", enum: ["image", "video"] },
+                    page: { type: "integer", minimum: 1, maximum: 50, default: 1 },
+                    keys: { type: "object" },
+                  },
                 },
               },
             },
           },
-          responses: { "200": { description: "Results" } },
+          responses: { "200": { description: "{ results, unchecked, page, hasMore, detector }" } },
         },
       },
       "/mcp": { post: { summary: "Model Context Protocol endpoint (JSON-RPC 2.0, streamable HTTP, stateless)", responses: { "200": { description: "JSON-RPC response" } } } },

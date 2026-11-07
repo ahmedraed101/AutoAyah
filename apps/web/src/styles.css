@@ -1145,6 +1145,11 @@ input[type="range"]::-moz-range-thumb {
   gap: 6px;
 }
 
+.load-more {
+  width: 100%;
+  justify-content: center;
+}
+
 .media-tile {
   position: relative;
   aspect-ratio: 1;

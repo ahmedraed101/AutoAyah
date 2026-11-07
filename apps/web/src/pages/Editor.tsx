@@ -74,6 +74,7 @@ export function Editor() {
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image");
   const [mediaQuery, setMediaQuery] = useState("nature landscape");
   const [mediaNote, setMediaNote] = useState<string>();
+  const [mediaMore, setMediaMore] = useState<{ query: string; kind: "image" | "video"; page: number; unchecked: number }>();
   const [searching, setSearching] = useState(false);
   const events = useRef<EventSource | null>(null);
   const composeAbort = useRef<AbortController | null>(null);
@@ -255,12 +256,21 @@ export function Editor() {
 
   const browserKeys = async () => (appConfig?.storageMode === "browser" ? await browserStore.getKeys() : undefined);
 
-  const searchBg = async () => {
+  const searchBg = async (more = false) => {
+    const query = more && mediaMore ? mediaMore.query : mediaQuery;
+    const kind = more && mediaMore ? mediaMore.kind : mediaKind;
+    const page = more && mediaMore ? mediaMore.page + 1 : 1;
     setSearching(true);
     try {
-      const res = await api.searchMedia({ query: mediaQuery, kind: mediaKind, keys: await browserKeys() });
-      setMedia(res.results);
-      setMediaNote(res.unchecked ? t("uncheckedResults", { n: res.unchecked }) : undefined);
+      const res = await api.searchMedia({ query, kind, page, keys: await browserKeys() });
+      const unchecked = (more && mediaMore ? mediaMore.unchecked : 0) + res.unchecked;
+      setMedia((prev) => {
+        if (!more) return res.results;
+        const seen = new Set(prev.map((m) => `${m.provider}-${m.id}`));
+        return [...prev, ...res.results.filter((m) => !seen.has(`${m.provider}-${m.id}`))];
+      });
+      setMediaMore(res.hasMore ? { query, kind, page: res.page, unchecked } : undefined);
+      setMediaNote(unchecked ? t("uncheckedResults", { n: unchecked }) : undefined);
     } finally {
       setSearching(false);
     }
@@ -720,7 +730,7 @@ export function Editor() {
                 role="search"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  void searchBg().catch((err: Error) => setError(err.message));
+                  void searchBg(false).catch((err: Error) => setError(err.message));
                 }}
               >
                 <Icon name="search" size={18} />
@@ -763,6 +773,16 @@ export function Editor() {
                     </button>
                   ))}
                 </div>
+              ) : null}
+              {mediaMore ? (
+                <button
+                  type="button"
+                  className="btn btn-quiet load-more"
+                  disabled={searching}
+                  onClick={() => void searchBg(true).catch((err: Error) => setError(err.message))}
+                >
+                  {searching ? t("searching") : t("loadMore")}
+                </button>
               ) : null}
               {selectedBg?.media?.attribution ? <p className="field-hint">{selectedBg.media.attribution}</p> : null}
               <div className="btn-row">

@@ -18,7 +18,7 @@ Default: http://localhost:3737
 - GET /api/jobs/:id
 - GET /api/jobs/:id/events — SSE progress
 - POST /api/jobs/:id/cancel | /api/jobs/:id/retry, DELETE /api/jobs/:id
-- POST /api/media/search — { query, kind: "image"|"video" } → people-free stock results
+- POST /api/media/search — { query, kind: "image"|"video", page? } → people-free stock results + hasMore
 - GET /openapi.json
 - POST /mcp — MCP (JSON-RPC 2.0, streamable HTTP): initialize, tools/list, tools/call
 - GET /mcp/tools, POST /mcp/call — { name, arguments } plain-REST shim of the same tools

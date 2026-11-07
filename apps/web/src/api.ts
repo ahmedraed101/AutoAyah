@@ -74,8 +74,8 @@ export const api = {
     fd.append("file", file);
     return json<{ key: string }>("/api/library/import", { method: "POST", body: fd });
   },
-  searchMedia: (body: { query: string; kind: "image" | "video"; keys?: Record<string, string | undefined> }) =>
-    json<{ results: MediaResult[]; unchecked: number; detector: { ready: boolean; error: string | null } }>("/api/media/search", {
+  searchMedia: (body: { query: string; kind: "image" | "video"; page?: number; keys?: Record<string, string | undefined> }) =>
+    json<{ results: MediaResult[]; unchecked: number; page: number; hasMore: boolean; detector: { ready: boolean; error: string | null } }>("/api/media/search", {
       method: "POST",
       body: JSON.stringify(body),
     }),

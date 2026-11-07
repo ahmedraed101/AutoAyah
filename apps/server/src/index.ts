@@ -477,6 +477,7 @@ app.post(
   handle(async (req, res) => {
     const query = String(req.body?.query ?? "nature landscape").slice(0, 100);
     const kind = req.body?.kind === "video" ? "video" : "image";
+    const page = Math.min(50, Math.max(1, Math.floor(Number(req.body?.page) || 1)));
     const bodyKeys = (req.body?.keys ?? {}) as ApiKeys;
     const stored = env.storageMode === "db" ? store.getKeys() : {};
     const keys = {
@@ -486,8 +487,9 @@ app.post(
       freesound: bodyKeys.freesound || stored.freesound,
     };
     if (!keys.pexels && !keys.unsplash && !keys.pixabay) throw new Error("Add at least one stock media API key in Settings");
-    const { results, unchecked } = await peopleFree(await searchMedia(keys, query, kind));
-    res.json({ results, unchecked, detector: detectorStatus(), ambience: BUNDLED_AMBIENCE });
+    const found = await searchMedia(keys, query, kind, page);
+    const { results, unchecked } = await peopleFree(found.results);
+    res.json({ results, unchecked, page, hasMore: found.hasMore && page < 50, detector: detectorStatus(), ambience: BUNDLED_AMBIENCE });
   }),
 );
 
