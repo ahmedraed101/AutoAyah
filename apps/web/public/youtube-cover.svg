@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1440" viewBox="0 0 2560 1440" role="img" aria-label="AutoAyah">
+  <rect width="2560" height="1440" fill="#121e2d"/>
+  <g fill="none" stroke="#d4a35e" stroke-width="22" stroke-linejoin="round" stroke-linecap="round"
+     transform="translate(1035.69,720) scale(0.812415) translate(-256,-256)">
+    <rect x="128" y="128" width="256" height="256" rx="18"/>
+    <rect x="128" y="128" width="256" height="256" rx="18" transform="rotate(45 256 256)"/>
+    <circle cx="256" cy="256" r="78"/>
+  </g>
+  <text x="1255.69" y="708" fill="#eceff3" font-family="Avenir Next Demi Bold, Avenir Next" font-size="92" font-weight="600">AutoAyah</text>
+  <text x="1386.86" y="792" fill="#eceff3" font-family="Geeza Pro" font-size="48">أوتو آية</text>
+</svg>
