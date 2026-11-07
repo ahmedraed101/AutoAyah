@@ -595,6 +595,15 @@ export function Editor() {
                     ))}
                   </Select>
                 </Field>
+                {config.tafsir ? (
+                  <Slider
+                    label={t("tafsirFontSize")}
+                    min={24}
+                    max={96}
+                    value={config.style.tafsirFontSize}
+                    onChange={(tafsirFontSize) => style({ tafsirFontSize })}
+                  />
+                ) : null}
                 <Field label={t("translation")}>
                   <Select value={config.translation ?? ""} onChange={(e) => setConfig({ translation: e.target.value || null })}>
                     <option value="">{t("none")}</option>

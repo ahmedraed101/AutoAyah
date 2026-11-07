@@ -73,6 +73,8 @@ export const StyleConfigSchema = z.object({
   cardColor: z.string().default("#f9f2e4"),
   textColor: z.string().default("#111111"),
   fontSize: z.number().min(20).max(200).default(64),
+  /** Largest tafsir text size (px on a 1080 canvas); long tafsir splits into more pages as it grows. */
+  tafsirFontSize: z.number().min(24).max(96).default(60),
   tajweed: z.boolean().default(true),
   showWatermark: z.boolean().default(true),
   watermarkText: z.string().default("AutoAyah"),

@@ -288,7 +288,8 @@ function TafsirBlock({ props, l, p, maxHeight, width = l.columnWidth }: { props:
   const titleSize = 44 * l.u;
   const padding = 44 * l.u;
   const textWidth = width - padding * 2;
-  const size = fitFontSize(longest, textWidth, maxHeight - titleSize * 1.6 - padding * 2 - l.gap, 60 * l.u, 1.75, NASKH_CHAR_EM);
+  const base = (props.style.tafsirFontSize ?? 60) * l.u;
+  const size = fitFontSize(longest, textWidth, maxHeight - titleSize * 1.6 - padding * 2 - l.gap, base, 1.75, NASKH_CHAR_EM);
   // Keep the card the same height on every page so the layout doesn't jump.
   const minHeight = pages.length > 1 ? Math.ceil((longest * NASKH_CHAR_EM * size) / textWidth) * size * 1.75 : undefined;
   return (
@@ -824,22 +825,27 @@ export function MushafPageSlide(props: SlideProps) {
   }
 
   if (sideBySide(l, width, height, hasTafsir)) {
-    // Full pages are tall, so height usually limits them; the tafsir takes whatever width the page leaves.
+    // Full pages are tall, so height limits them: with tafsir, use a tighter vertical margin and put the
+    // watermark under the tafsir so the page gets the full height. The tafsir takes the width the page leaves.
+    const sl = hasTafsir ? { ...l, padY: height * 0.035 } : l;
+    const pageHeight = hasTafsir ? height - sl.padY * 2 - l.panelY * 2 : available;
     const row = l.innerWidth - (hasTafsir ? l.columnGap : 0);
     const maxPage = hasTafsir ? row * 0.6 : row;
-    const pageWidth = mushafPage.image ? Math.min(maxPage, scanBox({ ...mushafPage, image: mushafPage.image }, maxPage, available).outerWidth) : maxPage;
+    const pageWidth = mushafPage.image ? Math.min(maxPage, scanBox({ ...mushafPage, image: mushafPage.image }, maxPage, pageHeight).outerWidth) : maxPage;
     const tafsirWidth = row - pageWidth;
+    const tafsirHeight = pageHeight - (watermark ? l.watermarkHeight + l.gap : 0);
     return (
-      <Frame p={p} l={l} style={style} overMedia={overMedia}>
+      <Frame p={p} l={sl} style={style} overMedia={overMedia}>
         <div style={{ display: "flex", flexDirection: "row", gap: l.columnGap, alignItems: "center", justifyContent: "center" }}>
-          <div style={{ flex: "none", display: "flex", flexDirection: "column" }}>{page(maxPage, available)}</div>
+          <div style={{ flex: "none", display: "flex", flexDirection: "column" }}>{page(maxPage, pageHeight)}</div>
           {hasTafsir ? (
             <div style={{ width: tafsirWidth, minWidth: 0, display: "flex", flexDirection: "column", gap: l.gap }}>
-              <TafsirBlock props={props} l={l} p={p} width={tafsirWidth} maxHeight={available} />
+              <TafsirBlock props={props} l={l} p={p} width={tafsirWidth} maxHeight={tafsirHeight} />
+              {watermark}
             </div>
           ) : null}
         </div>
-        {watermark}
+        {hasTafsir ? null : watermark}
       </Frame>
     );
   }

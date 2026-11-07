@@ -53,6 +53,10 @@ export function paginateTafsir(text: string, maxChars = 240): string[] {
 /** Characters of tafsir that fit on one card at a readable size, per canvas shape. */
 const TAFSIR_PAGE_CHARS: Record<AspectRatio, number> = { "9:16": 400, "16:9": 380, "1:1": 230, "4:5": 280 };
 const MUSHAF_TAFSIR_PAGE_CHARS = 240;
+/** Tafsir size the page lengths above are tuned for; area per character grows with the square of the size. */
+const TAFSIR_BASE_SIZE = 60;
+
+const tafsirPageChars = (chars: number, size: number) => Math.max(80, Math.round(chars * (TAFSIR_BASE_SIZE / size) ** 2));
 
 function readingSeconds(tafsir: string | undefined, speed: keyof typeof READING_SPEEDS): number {
   if (!tafsir) return 0;
@@ -97,9 +101,8 @@ export function buildTimeline(config: VideoConfig, clip: ResolvedClip): Timeline
     seconds += Math.max(0.5, ayahDuration(ayah, config) + (ayah.run ? 0 : gap));
     const durationInFrames = Math.max(1, Math.round(seconds * FPS) - frame);
     const durationInSeconds = durationInFrames / FPS;
-    const tafsirPages = isMushafMode(config.mode)
-      ? paginateTafsir(ayah.tafsir ?? "", MUSHAF_TAFSIR_PAGE_CHARS)
-      : paginateTafsir(ayah.tafsir ?? "", TAFSIR_PAGE_CHARS[config.aspectRatio as AspectRatio] ?? 240);
+    const pageChars = isMushafMode(config.mode) ? MUSHAF_TAFSIR_PAGE_CHARS : (TAFSIR_PAGE_CHARS[config.aspectRatio as AspectRatio] ?? 240);
+    const tafsirPages = paginateTafsir(ayah.tafsir ?? "", tafsirPageChars(pageChars, config.style.tafsirFontSize ?? TAFSIR_BASE_SIZE));
 
     // Background segments are numbered within the first surah; later surahs keep the last matching one.
     const inFirstSurah = (ayah.surah ?? config.surah) === config.surah;
