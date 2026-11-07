@@ -36,7 +36,7 @@ import { BACKGROUND_ROUTE, MediaLibrary, PREVIEW_ROUTE, backgroundKey, previewKe
 import { mountMcp } from "./mcp.js";
 import { openApiSpec } from "./openapi.js";
 import { isTerminal, RenderQueue } from "./queue.js";
-import { buildProps, renderJob } from "./render.js";
+import { buildProps, getServeUrl, renderJob } from "./render.js";
 import { DbStore, type ApiKeys } from "./stores.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -570,4 +570,11 @@ app.use("/api", (_req, res) => notFound(res));
 
 app.listen(env.PORT, () => {
   console.log(`AutoAyah on http://localhost:${env.PORT} (${env.APP_MODE}) data=${env.dataDir}`);
+  // Bundling the templates takes a while; doing it now keeps the first render from sitting at 0%.
+  if (process.env.NODE_ENV === "production") {
+    getServeUrl(templatesEntry).then(
+      () => console.log("[render] templates bundled"),
+      (e) => console.warn("[render] template bundle failed, will retry on first render:", (e as Error).message),
+    );
+  }
 });

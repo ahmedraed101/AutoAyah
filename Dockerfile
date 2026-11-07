@@ -1,7 +1,9 @@
 FROM node:22-bookworm-slim
 
+# Shared libraries for Remotion's Chrome Headless Shell (fetched below).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium \
+    libnss3 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 libgbm1 libasound2 libxrandr2 libxkbcommon0 \
+    libxfixes3 libxcomposite1 libxdamage1 libpango-1.0-0 libcairo2 libcups2 \
     fonts-noto-core \
     fonts-noto-extra \
     ca-certificates \
@@ -26,7 +28,8 @@ COPY apps ./apps
 RUN pnpm install --frozen-lockfile=false
 RUN pnpm -r --filter=./packages/* build
 RUN pnpm --filter @autoayah/web build
-RUN cd /app && npx remotion browser ensure || true
+# Lands in apps/server/node_modules/.remotion, where the server looks for it at runtime.
+RUN cd apps/server && node -e "require('@remotion/renderer').ensureBrowser().then(() => console.log('Chrome Headless Shell ready'))"
 
 ENV PORT=3737
 ENV DATA_DIR=/app/data
