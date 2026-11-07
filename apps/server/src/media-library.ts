@@ -27,6 +27,17 @@ const COOLDOWN_MS = 15 * 60_000;
 /** Unsplash's API terms require hotlinking its search previews, so only the other providers' previews are cached. */
 const KEEP_PREVIEW: ReadonlySet<string> = new Set(["pexels", "pixabay"]);
 const STOCK: ReadonlySet<string> = new Set(["pexels", "unsplash", "pixabay"]);
+/** Hosts the stock providers serve files from (Pexels videos can come from Vimeo). */
+const STOCK_HOSTS = ["pexels.com", "vimeo.com", "unsplash.com", "pixabay.com"];
+
+function isStockFileUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" && STOCK_HOSTS.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`));
+  } catch {
+    return false;
+  }
+}
 
 export const PREVIEW_ROUTE = "/media/previews";
 export const BACKGROUND_ROUTE = "/media/backgrounds";
@@ -62,7 +73,7 @@ export class MediaLibrary {
   /** Downloads a chosen stock background once and returns its local URL. */
   keep(seg: Pick<Segment, "type" | "media">): Promise<string> {
     const m = seg.media;
-    if (!m?.url || !STOCK.has(m.provider) || !/^https:\/\//i.test(m.url)) return Promise.reject(new Error("Only stock media can be saved"));
+    if (!m?.url || !STOCK.has(m.provider) || !isStockFileUrl(m.url)) return Promise.reject(new Error("Only stock media can be saved"));
     const hash = backgroundHash(seg);
     const url = `${BACKGROUND_ROUTE}/${hash}`;
     const pending = this.fetching.get(hash);
@@ -70,7 +81,7 @@ export class MediaLibrary {
     const run = (async () => {
       if (await this.cache.get(backgroundKey(hash))) return url;
       const file = await download(m.url!, 300_000);
-      if (!file) throw new Error("Could not download the background");
+      if (!file || !/^(image|video)\//.test(file.type)) throw new Error("Could not download the background");
       await this.cache.writeFile(backgroundKey(hash), "background", m.provider, file.data, true, {
         contentType: file.type,
         attribution: m.attribution,

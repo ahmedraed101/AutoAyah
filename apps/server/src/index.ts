@@ -159,15 +159,26 @@ if (env.CACHE_MAX_GB) {
 
 const app = express();
 app.set("trust proxy", "loopback");
-app.use(cors({ origin: true, credentials: true }));
+// The web app is same-origin (served here, or proxied by Vite in dev); other sites must not drive the API from a visitor's browser.
+app.use(cors({ origin: new URL(env.PUBLIC_URL).origin, credentials: true }));
 app.use(express.json({ limit: "2mb" }));
 app.use(cookieParser());
 app.use(authMiddleware(env));
 
+/** Uploads are served back from this origin, so only these types (never HTML or SVG) are accepted, saved under our own extension. */
+const UPLOAD_TYPES: Record<string, string> = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+  "video/mp4": ".mp4",
+  "video/webm": ".webm",
+  "video/quicktime": ".mov",
+};
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 200 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => cb(null, /^(image|video)\//.test(file.mimetype)),
+  fileFilter: (_req, file, cb) => cb(null, file.mimetype in UPLOAD_TYPES),
 });
 
 function errorMessage(e: unknown): string {
@@ -479,7 +490,11 @@ const sendCachedMedia = (keyOf: (hash: string) => string) =>
     if (!entry || !existsSync(entry.path)) return notFound(res);
     void cache.touch(entry.key);
     res.sendFile(path.resolve(entry.path), {
-      headers: { "Content-Type": String(entry.meta?.contentType || "application/octet-stream"), "Cache-Control": "public, max-age=31536000, immutable" },
+      headers: {
+        "Content-Type": String(entry.meta?.contentType || "application/octet-stream"),
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
+      },
     });
   });
 app.get(`${PREVIEW_ROUTE}/:hash`, sendCachedMedia(previewKey));
@@ -514,7 +529,7 @@ app.post(
   "/api/media/upload",
   upload.single("file"),
   handle(async (req, res) => {
-    if (!req.file) throw new Error("An image or video file is required");
+    if (!req.file) throw new Error("A JPEG, PNG, WebP, GIF, MP4, WebM or MOV file is required");
     const isVideo = req.file.mimetype.startsWith("video/");
     if (!isVideo) {
       const verdict = await detectPeopleInImage(req.file.buffer);
@@ -522,7 +537,8 @@ app.post(
     }
     const uploads = path.join(env.dataDir, "uploads");
     mkdirSync(uploads, { recursive: true });
-    const name = `${Date.now()}-${path.basename(req.file.originalname).replace(/[^\w.-]+/g, "_")}`;
+    const stem = path.parse(req.file.originalname).name.replace(/[^\w-]+/g, "_").slice(0, 80);
+    const name = `${Date.now()}-${stem}${UPLOAD_TYPES[req.file.mimetype]}`;
     writeFileSync(path.join(uploads, name), req.file.buffer);
     res.json({ provider: "upload", id: name, type: isVideo ? "video" : "image", url: `/uploads/${name}`, attribution: "User upload" });
   }),
@@ -537,7 +553,7 @@ mountMcp(app, {
 });
 
 app.use("/out", express.static(env.outDir));
-app.use("/uploads", express.static(path.join(env.dataDir, "uploads")));
+app.use("/uploads", express.static(path.join(env.dataDir, "uploads"), { setHeaders: (res) => res.setHeader("X-Content-Type-Options", "nosniff") }));
 app.use("/ambience", express.static(ambienceDir, { maxAge: "7d" }));
 const fontsDir = path.resolve(__dirname, "../../../packages/templates/public/fonts");
 if (existsSync(fontsDir)) app.use("/fonts", express.static(fontsDir, { maxAge: "30d" }));
