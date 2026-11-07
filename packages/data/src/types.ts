@@ -10,6 +10,7 @@ export type CacheKind =
   | "mushaf_layout"
   | "font"
   | "qul_import"
+  | "background"
   | "other";
 
 export type CacheEntry = {

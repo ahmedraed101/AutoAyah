@@ -16,7 +16,7 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
 export type MediaResult = MediaRef & { type: "image" | "video"; checked?: boolean };
 export type PreviewResult = CompositionProps & { warnings: string[] };
 
-export type LibraryType = "recitation" | "mushaf" | "tafsir" | "translation" | "text" | "imports" | "app";
+export type LibraryType = "recitation" | "mushaf" | "tafsir" | "translation" | "text" | "backgrounds" | "imports" | "app";
 export type LibraryGroup = {
   type: LibraryType;
   id: string;
@@ -79,6 +79,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  mediaLibrary: (kind: "image" | "video") =>
+    json<{ results: MediaResult[]; detector: { ready: boolean; error: string | null } }>(`/api/media/library?kind=${kind}`),
+  moreMedia: (body: { kind: "image" | "video"; keys?: Record<string, string | undefined> }) =>
+    json<{ added: MediaResult[]; unchecked: number; limited: string[]; exhausted: boolean }>("/api/media/more", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  keepMedia: (body: { type: "image" | "video"; media: MediaResult }) =>
+    json<{ url: string }>("/api/media/keep", { method: "POST", body: JSON.stringify({ type: body.type, media: { ...body.media, checked: undefined } }) }),
   uploadMedia: (file: File) => {
     const fd = new FormData();
     fd.append("file", file);

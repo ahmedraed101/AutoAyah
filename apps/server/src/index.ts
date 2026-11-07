@@ -7,7 +7,7 @@ import cors from "cors";
 import express from "express";
 import multer from "multer";
 import { ZodError, z } from "zod";
-import { VideoConfigSchema, clipAyahCount, clipSegments, renderFileName, type Job, type VideoConfig } from "@autoayah/core";
+import { MediaRefSchema, VideoConfigSchema, clipAyahCount, clipSegments, renderFileName, type Job, type VideoConfig } from "@autoayah/core";
 import {
   createFsCache,
   createResolver,
@@ -27,12 +27,12 @@ import {
   searchMedia,
   trackUnsplashDownload,
   warmDetector,
-  type SearchResult,
 } from "@autoayah/media";
 import { authMiddleware, authStatus, loginHandler } from "./auth.js";
 import { openDb } from "./db/index.js";
 import { DownloadManager, DownloadRequestSchema } from "./downloads.js";
 import { LEGACY_DEFAULT_SECRET, loadEnv } from "./env.js";
+import { BACKGROUND_ROUTE, MediaLibrary, PREVIEW_ROUTE, backgroundKey, previewKey } from "./media-library.js";
 import { mountMcp } from "./mcp.js";
 import { openApiSpec } from "./openapi.js";
 import { isTerminal, RenderQueue } from "./queue.js";
@@ -50,6 +50,7 @@ if (!env.secretFromEnv) store.migrateSecret(LEGACY_DEFAULT_SECRET);
 // Verdicts recorded while the detector was unavailable were never checked; drop them so they get re-checked.
 db.deleteVerdictsByMethod("unchecked");
 const cache = createFsCache(env.dataDir);
+const mediaLibrary = new MediaLibrary(db, cache);
 
 if (env.APP_MODE === "hosted" && !env.APP_PASSWORD) {
   console.warn("[autoayah] APP_MODE=hosted without APP_PASSWORD: anyone who can reach this server can render videos.");
@@ -77,7 +78,7 @@ function resolver() {
 const downloads = new DownloadManager(() => createResolver({ cache: pinningCache(cache), qf: qfCreds(), dataDir: env.dataDir }));
 
 const LibraryTargetSchema = z.object({
-  type: z.enum(["recitation", "mushaf", "tafsir", "translation", "text", "imports", "app"]),
+  type: z.enum(["recitation", "mushaf", "tafsir", "translation", "text", "backgrounds", "imports", "app"]),
   id: z.string().min(1).max(300),
   surah: z.number().int().min(1).max(114).optional(),
 });
@@ -95,7 +96,7 @@ function checkRange(config: VideoConfig) {
 
 async function preview(config: VideoConfig, draft = false) {
   checkRange(config);
-  return buildProps(config, resolver(), limits, draft);
+  return buildProps(await mediaLibrary.localize(config, false), resolver(), limits, draft);
 }
 
 function createJob(config: VideoConfig): Job {
@@ -107,7 +108,8 @@ function createJob(config: VideoConfig): Job {
   return queue.enqueue(config);
 }
 
-const queue = new RenderQueue(db, env.MAX_CONCURRENT_RENDERS, async (job, onProgress, signal) => {
+const queue = new RenderQueue(db, env.MAX_CONCURRENT_RENDERS, async (queued, onProgress, signal) => {
+  const job = { ...queued, config: await mediaLibrary.localize(queued.config, true) };
   const common = { resolver: resolver(), outDir: env.outDir, entryPoint: templatesEntry, assetBaseUrl, limits, signal };
   if (job.config.export !== "batch") return renderJob(job, { ...common, onProgress });
 
@@ -351,6 +353,7 @@ app.post(
     const target = LibraryTargetSchema.parse(req.body);
     const doomed = (await cache.list()).filter((e) => entryMatches(e, target));
     for (const e of doomed) await cache.remove(e.key);
+    if (target.type === "backgrounds" && target.id === "previews") mediaLibrary.forget();
     res.json({ removed: doomed.length });
   }),
 );
@@ -431,74 +434,67 @@ app.get(
   }),
 );
 
-// Media search — people are filtered by tags, URL slugs and a COCO-SSD person detector.
-const DETECT_CONCURRENCY = 4;
-
-async function peopleFree(results: SearchResult[]): Promise<{ results: (SearchResult & { checked: boolean })[]; unchecked: number }> {
-  const keep: ((SearchResult & { checked: boolean }) | null)[] = new Array(results.length).fill(null);
-  let next = 0;
-  let unchecked = 0;
-  const worker = async () => {
-    while (next < results.length) {
-      const i = next++;
-      const r = results[i]!;
-      const verdictId = `${r.provider}:${r.type}:${r.id}`;
-      const cached = db.getVerdict(verdictId);
-      if (cached) {
-        if (!cached.has_person) keep[i] = { ...r, checked: true };
-        continue;
-      }
-      if (!r.previewUrl) {
-        unchecked++;
-        keep[i] = { ...r, checked: false };
-        continue;
-      }
-      try {
-        const img = await fetch(r.previewUrl, { signal: AbortSignal.timeout(15_000) });
-        if (!img.ok) throw new Error(String(img.status));
-        const verdict = await detectPeopleInImage(Buffer.from(await img.arrayBuffer()));
-        if (verdict.method === "unchecked") {
-          unchecked++;
-          keep[i] = { ...r, checked: false };
-          continue;
-        }
-        db.insertVerdict({
-          id: verdictId,
-          provider: r.provider,
-          media_id: r.id,
-          has_person: verdict.hasPerson ? 1 : 0,
-          confidence: verdict.confidence,
-          method: verdict.method,
-          created_at: new Date().toISOString(),
-        });
-        if (!verdict.hasPerson) keep[i] = { ...r, checked: true };
-      } catch {
-        unchecked++;
-        keep[i] = { ...r, checked: false };
-      }
-    }
+// Background media — people are filtered by tags, URL slugs and a COCO-SSD person detector, and every
+// people-free result is kept in the library so it is fetched and checked only once.
+function stockKeys(body: unknown) {
+  const bodyKeys = ((body as { keys?: ApiKeys } | undefined)?.keys ?? {}) as ApiKeys;
+  const stored = env.storageMode === "db" ? store.getKeys() : {};
+  return {
+    pexels: bodyKeys.pexels || stored.pexels,
+    unsplash: bodyKeys.unsplash || stored.unsplash,
+    pixabay: bodyKeys.pixabay || stored.pixabay,
+    freesound: bodyKeys.freesound || stored.freesound,
   };
-  await Promise.all(Array.from({ length: DETECT_CONCURRENCY }, worker));
-  return { results: keep.filter((r): r is SearchResult & { checked: boolean } => r !== null), unchecked };
 }
+
+const mediaKind = (v: unknown) => (v === "video" ? "video" : "image");
+
+app.get(
+  "/api/media/library",
+  handle(async (req, res) => {
+    res.json({ results: await mediaLibrary.list(mediaKind(req.query.kind)), detector: detectorStatus() });
+  }),
+);
+
+app.post(
+  "/api/media/more",
+  handle(async (req, res) => {
+    const more = await mediaLibrary.loadMore(mediaKind(req.body?.kind), stockKeys(req.body));
+    res.json({ ...more, detector: detectorStatus() });
+  }),
+);
+
+app.post(
+  "/api/media/keep",
+  handle(async (req, res) => {
+    const seg = z.object({ type: z.enum(["image", "video"]), media: MediaRefSchema }).parse(req.body);
+    res.json({ url: await mediaLibrary.keep(seg) });
+  }),
+);
+
+const sendCachedMedia = (keyOf: (hash: string) => string) =>
+  handle(async (req, res) => {
+    const hash = String(req.params.hash);
+    const entry = /^[a-f0-9]{20}$/.test(hash) ? await cache.get(keyOf(hash)) : null;
+    if (!entry || !existsSync(entry.path)) return notFound(res);
+    void cache.touch(entry.key);
+    res.sendFile(path.resolve(entry.path), {
+      headers: { "Content-Type": String(entry.meta?.contentType || "application/octet-stream"), "Cache-Control": "public, max-age=31536000, immutable" },
+    });
+  });
+app.get(`${PREVIEW_ROUTE}/:hash`, sendCachedMedia(previewKey));
+app.get(`${BACKGROUND_ROUTE}/:hash`, sendCachedMedia(backgroundKey));
 
 app.post(
   "/api/media/search",
   handle(async (req, res) => {
     const query = String(req.body?.query ?? "nature landscape").slice(0, 100);
-    const kind = req.body?.kind === "video" ? "video" : "image";
+    const kind = mediaKind(req.body?.kind);
     const page = Math.min(50, Math.max(1, Math.floor(Number(req.body?.page) || 1)));
-    const bodyKeys = (req.body?.keys ?? {}) as ApiKeys;
-    const stored = env.storageMode === "db" ? store.getKeys() : {};
-    const keys = {
-      pexels: bodyKeys.pexels || stored.pexels,
-      unsplash: bodyKeys.unsplash || stored.unsplash,
-      pixabay: bodyKeys.pixabay || stored.pixabay,
-      freesound: bodyKeys.freesound || stored.freesound,
-    };
+    const keys = stockKeys(req.body);
     if (!keys.pexels && !keys.unsplash && !keys.pixabay) throw new Error("Add at least one stock media API key in Settings");
     const found = await searchMedia(keys, query, kind, page);
-    const { results, unchecked } = await peopleFree(found.results);
+    const { items: results, unchecked } = await mediaLibrary.admit(found.results, kind);
     res.json({ results, unchecked, page, hasMore: found.hasMore && page < 50, detector: detectorStatus(), ambience: BUNDLED_AMBIENCE });
   }),
 );

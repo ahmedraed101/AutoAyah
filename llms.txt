@@ -19,6 +19,9 @@ Default: http://localhost:3737
 - GET /api/jobs/:id/events — SSE progress
 - POST /api/jobs/:id/cancel | /api/jobs/:id/retry, DELETE /api/jobs/:id
 - POST /api/media/search — { query, kind: "image"|"video", page? } → people-free stock results + hasMore
+- GET /api/media/library?kind=image|video — backgrounds found so far (no provider calls)
+- POST /api/media/more — { kind } → new backgrounds via rotating scenery keywords; { added, limited, exhausted }
+- POST /api/media/keep — { type, media } → saves the full-size stock file once; renders use the saved copy (managed under Downloads → Backgrounds)
 - GET /openapi.json
 - POST /mcp — MCP (JSON-RPC 2.0, streamable HTTP): initialize, tools/list, tools/call
 - GET /mcp/tools, POST /mcp/call — { name, arguments } plain-REST shim of the same tools

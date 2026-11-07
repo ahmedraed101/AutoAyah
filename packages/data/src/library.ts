@@ -1,7 +1,7 @@
 import { parseReciter } from "./resolver.js";
 import type { CacheEntry } from "./types.js";
 
-export type LibraryType = "recitation" | "mushaf" | "tafsir" | "translation" | "text" | "imports" | "app";
+export type LibraryType = "recitation" | "mushaf" | "tafsir" | "translation" | "text" | "backgrounds" | "imports" | "app";
 
 /** A group the user can download or delete as a whole; `surah` narrows it to one surah. */
 export type LibraryTarget = { type: LibraryType; id: string; surah?: number };
@@ -47,6 +47,8 @@ export function classifyEntry(e: CacheEntry): Slot {
   if ((m = k.match(/^qc:(tafsir|translation):v1:(\d+):(\d+)$/))) return { type: m[1] as LibraryType, id: `qc-${m[2]}`, surah: +m[3]! };
   if ((m = k.match(/^(?:mushafimg:v1|mushaf:v2|page:v1):(\d+)$/))) return { type: "mushaf", id: "madani", page: +m[1]! };
   if (k.startsWith("mushaf:ayahinfo:")) return { type: "mushaf", id: "madani" };
+  if (k.startsWith("bg:")) return { type: "backgrounds", id: "full" };
+  if (k.startsWith("bgprev:")) return { type: "backgrounds", id: "previews" };
   if (e.source === "qul") return { type: "imports", id: k };
   return { type: "app", id: "app" };
 }
@@ -129,7 +131,7 @@ export function summarizeLibrary(
     if (owner) surahRow(owner, slot.surah!).bytes += entry.size;
   }
 
-  const order: LibraryType[] = ["recitation", "mushaf", "tafsir", "translation", "text", "imports", "app"];
+  const order: LibraryType[] = ["recitation", "mushaf", "tafsir", "translation", "text", "backgrounds", "imports", "app"];
   return [...groups.values()]
     .map((g) => ({ ...g, surahs: g.surahs.sort((a, b) => a.surah - b.surah), pages: g.pages.sort((a, b) => a - b) }))
     .sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type) || a.name.localeCompare(b.name));

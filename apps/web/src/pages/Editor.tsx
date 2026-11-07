@@ -76,10 +76,10 @@ export function Editor() {
   const [status, setStatus] = useState<string>();
   const [media, setMedia] = useState<MediaResult[]>([]);
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image");
-  const [mediaQuery, setMediaQuery] = useState("nature landscape");
   const [mediaNote, setMediaNote] = useState<string>();
-  const [mediaMore, setMediaMore] = useState<{ query: string; kind: "image" | "video"; page: number; unchecked: number }>();
+  const [mediaDone, setMediaDone] = useState(false);
   const [searching, setSearching] = useState(false);
+  const shownKind = useRef(mediaKind);
   const events = useRef<EventSource | null>(null);
   const composeAbort = useRef<AbortController | null>(null);
   const stage = useRef<HTMLDivElement>(null);
@@ -265,25 +265,51 @@ export function Editor() {
 
   const browserKeys = async () => (appConfig?.storageMode === "browser" ? await browserStore.getKeys() : undefined);
 
-  const searchBg = async (more = false) => {
-    const query = more && mediaMore ? mediaMore.query : mediaQuery;
-    const kind = more && mediaMore ? mediaMore.kind : mediaKind;
-    const page = more && mediaMore ? mediaMore.page + 1 : 1;
+  const loadMoreMedia = async (kind: "image" | "video") => {
     setSearching(true);
     try {
-      const res = await api.searchMedia({ query, kind, page, keys: await browserKeys() });
-      const unchecked = (more && mediaMore ? mediaMore.unchecked : 0) + res.unchecked;
+      const res = await api.moreMedia({ kind, keys: await browserKeys() });
+      if (shownKind.current !== kind) return;
       setMedia((prev) => {
-        if (!more) return res.results;
         const seen = new Set(prev.map((m) => `${m.provider}-${m.id}`));
-        return [...prev, ...res.results.filter((m) => !seen.has(`${m.provider}-${m.id}`))];
+        return [...prev, ...res.added.filter((m) => !seen.has(`${m.provider}-${m.id}`))];
       });
-      setMediaMore(res.hasMore ? { query, kind, page: res.page, unchecked } : undefined);
-      setMediaNote(unchecked ? t("uncheckedResults", { n: unchecked }) : undefined);
+      setMediaDone(res.exhausted);
+      const notes = [
+        res.unchecked ? t("uncheckedResults", { n: res.unchecked }) : "",
+        res.limited.length ? t("providersLimited", { names: res.limited.join(", ") }) : "",
+      ].filter(Boolean);
+      setMediaNote(notes.join(" ") || undefined);
+    } catch (err) {
+      if (shownKind.current === kind) setMediaNote((err as Error).message);
     } finally {
       setSearching(false);
     }
   };
+
+  useEffect(() => {
+    if (panel !== "background") return;
+    if (shownKind.current !== mediaKind) setMedia([]);
+    shownKind.current = mediaKind;
+    setMediaNote(undefined);
+    setMediaDone(false);
+    let live = true;
+    api
+      .mediaLibrary(mediaKind)
+      .then((res) => {
+        if (!live) return;
+        setMedia((prev) => {
+          const saved = new Set(res.results.map((m) => `${m.provider}-${m.id}`));
+          return [...res.results, ...prev.filter((m) => !saved.has(`${m.provider}-${m.id}`))];
+        });
+        if (!res.results.length) void loadMoreMedia(mediaKind);
+      })
+      .catch((err: Error) => live && setMediaNote(err.message));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panel, mediaKind]);
 
   const applyMedia = (m: MediaResult) => {
     setNested("backgrounds", [
@@ -306,6 +332,9 @@ export function Editor() {
     ]);
     if (m.provider === "unsplash" && m.downloadLocation) {
       void browserKeys().then((k) => api.trackUnsplash(m.downloadLocation!, k?.unsplash).catch(() => undefined));
+    }
+    if (m.provider === "pexels" || m.provider === "unsplash" || m.provider === "pixabay") {
+      api.keepMedia({ type: m.type, media: m }).catch(() => undefined);
     }
   };
 
@@ -736,28 +765,9 @@ export function Editor() {
                   { value: "video", label: t("videos") },
                 ]}
               />
-              <form
-                className="search"
-                role="search"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void searchBg(false).catch((err: Error) => setError(err.message));
-                }}
-              >
-                <Icon name="search" size={18} />
-                <input
-                  type="search"
-                  enterKeyHint="search"
-                  aria-label={t("search")}
-                  value={mediaQuery}
-                  onChange={(e) => setMediaQuery(e.target.value)}
-                  placeholder={t("search")}
-                />
-                <button type="submit" className="btn btn-quiet" disabled={searching}>
-                  {searching ? t("searching") : t("search")}
-                </button>
-              </form>
-              <p className="field-hint">{t("peopleFiltered")}</p>
+              <p className="field-hint">
+                {t("peopleFiltered")} {t("mediaSaved")}
+              </p>
               {mediaNote ? <p className="notice warn">{mediaNote}</p> : null}
               {media.length ? (
                 <div className="media-grid">
@@ -785,16 +795,13 @@ export function Editor() {
                   ))}
                 </div>
               ) : null}
-              {mediaMore ? (
-                <button
-                  type="button"
-                  className="btn btn-quiet load-more"
-                  disabled={searching}
-                  onClick={() => void searchBg(true).catch((err: Error) => setError(err.message))}
-                >
+              {mediaDone ? (
+                <p className="field-hint">{t("mediaExhausted")}</p>
+              ) : (
+                <button type="button" className="btn btn-quiet load-more" disabled={searching} onClick={() => void loadMoreMedia(mediaKind)}>
                   {searching ? t("searching") : t("loadMore")}
                 </button>
-              ) : null}
+              )}
               {selectedBg?.media?.attribution ? <p className="field-hint">{selectedBg.media.attribution}</p> : null}
               <div className="btn-row">
                 <label className="btn btn-quiet">

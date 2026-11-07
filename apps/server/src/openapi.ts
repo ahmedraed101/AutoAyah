@@ -76,6 +76,39 @@ export function openApiSpec(publicUrl: string) {
           responses: { "200": { description: "{ results, unchecked, page, hasMore, detector }" } },
         },
       },
+      "/api/media/library": {
+        get: {
+          summary: "Background media found so far (people-free, previews cached once)",
+          parameters: [{ name: "kind", in: "query", schema: { type: "string", enum: ["image", "video"] } }],
+          responses: { "200": { description: "{ results, detector }" } },
+        },
+      },
+      "/api/media/keep": {
+        post: {
+          summary: "Save a chosen stock background's full-size file to the server cache (renders use it)",
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: { type: "object", required: ["type", "media"], properties: { type: { type: "string", enum: ["image", "video"] }, media: { type: "object" } } },
+              },
+            },
+          },
+          responses: { "200": { description: "{ url } — local /media/backgrounds/… URL" } },
+        },
+      },
+      "/api/media/more": {
+        post: {
+          summary: "Fetch new backgrounds into the library using rotating scenery keywords; never repeats a provider request",
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: { type: "object", properties: { kind: { type: "string", enum: ["image", "video"] }, keys: { type: "object" } } },
+              },
+            },
+          },
+          responses: { "200": { description: "{ added, unchecked, limited, exhausted, detector }" } },
+        },
+      },
       "/mcp": { post: { summary: "Model Context Protocol endpoint (JSON-RPC 2.0, streamable HTTP, stateless)", responses: { "200": { description: "JSON-RPC response" } } } },
     },
     components: { schemas: { VideoConfig: videoConfigJsonSchema, Job: jobJsonSchema } },

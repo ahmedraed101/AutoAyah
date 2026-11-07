@@ -18,6 +18,70 @@ export type SearchResult = MediaRef & {
 
 export type SearchPage = { results: SearchResult[]; hasMore: boolean };
 
+export type StockProvider = "pexels" | "unsplash" | "pixabay";
+
+export class ProviderError extends Error {
+  constructor(
+    readonly provider: StockProvider,
+    readonly status: number,
+  ) {
+    super(`${provider[0]!.toUpperCase()}${provider.slice(1)} search failed: ${status}`);
+  }
+
+  /** Quota or key problems: retrying soon only burns more of the quota. */
+  get limited() {
+    return this.status === 429 || this.status === 403;
+  }
+}
+
+/** Calm, people-free scenery keywords rotated by "load more" so each click brings different backgrounds. */
+export const BACKGROUND_KEYWORDS: Record<"image" | "video", string[]> = {
+  image: [
+    "nature landscape",
+    "mountains",
+    "ocean waves",
+    "clouds sky",
+    "desert dunes",
+    "forest",
+    "night sky stars",
+    "waterfall",
+    "sunset",
+    "lake reflection",
+    "misty hills",
+    "green valley",
+    "snow mountains",
+    "calm sea",
+    "autumn trees",
+    "river",
+    "flowers field",
+    "galaxy",
+    "sunrise horizon",
+    "rain drops",
+    "canyon",
+    "islamic architecture",
+    "mosque",
+    "palm trees",
+    "beach",
+  ],
+  video: [
+    "nature landscape",
+    "ocean waves",
+    "clouds timelapse",
+    "forest",
+    "waterfall",
+    "night sky stars",
+    "desert",
+    "rain",
+    "sunset",
+    "mountains aerial",
+    "river stream",
+    "snow falling",
+    "calm lake",
+    "sky",
+    "sea aerial",
+  ],
+};
+
 const PER_PAGE = 15;
 
 async function pexelsSearch(key: string, query: string, kind: "image" | "video", page: number): Promise<SearchPage> {
@@ -27,7 +91,7 @@ async function pexelsSearch(key: string, query: string, kind: "image" | "video",
       ? `https://api.pexels.com/videos/search?query=${encodeURIComponent(q)}&per_page=${PER_PAGE}&page=${page}`
       : `https://api.pexels.com/v1/search?query=${encodeURIComponent(q)}&per_page=${PER_PAGE}&page=${page}`;
   const res = await fetch(url, { headers: { Authorization: key } });
-  if (!res.ok) throw new Error(`Pexels search failed: ${res.status}`);
+  if (!res.ok) throw new ProviderError("pexels", res.status);
   const json = (await res.json()) as {
     next_page?: string;
     photos?: { id: number; width: number; height: number; url: string; photographer: string; photographer_url: string; src: { large: string; large2x: string; original: string }; alt?: string }[];
@@ -89,7 +153,7 @@ async function unsplashSearch(key: string, query: string, page: number): Promise
     `https://api.unsplash.com/search/photos?query=${encodeURIComponent(q)}&per_page=${PER_PAGE}&page=${page}&content_filter=high`,
     { headers: { Authorization: `Client-ID ${key}` } },
   );
-  if (!res.ok) throw new Error(`Unsplash search failed: ${res.status}`);
+  if (!res.ok) throw new ProviderError("unsplash", res.status);
   const json = (await res.json()) as {
     total_pages: number;
     results: {
@@ -128,7 +192,7 @@ async function pixabaySearch(key: string, query: string, kind: "image" | "video"
       ? `https://pixabay.com/api/videos/?key=${key}&q=${encodeURIComponent(q)}&per_page=${PER_PAGE}&page=${page}`
       : `https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(q)}&image_type=photo&per_page=${PER_PAGE}&page=${page}&safesearch=true`;
   const res = await fetch(base);
-  if (!res.ok) throw new Error(`Pixabay search failed: ${res.status}`);
+  if (!res.ok) throw new ProviderError("pixabay", res.status);
   const json = (await res.json()) as {
     totalHits: number;
     hits: {
@@ -180,16 +244,25 @@ async function pixabaySearch(key: string, query: string, kind: "image" | "video"
   return { results, hasMore: page * PER_PAGE < json.totalHits };
 }
 
+/** Providers that can serve this kind with the given keys. */
+export function stockProviders(keys: ProviderKeys, kind: "image" | "video"): StockProvider[] {
+  const all: StockProvider[] = ["pexels", "unsplash", "pixabay"];
+  return all.filter((p) => keys[p] && (p !== "unsplash" || kind === "image"));
+}
+
+export function searchProvider(provider: StockProvider, key: string, query: string, kind: "image" | "video", page: number): Promise<SearchPage> {
+  if (provider === "pexels") return pexelsSearch(key, query, kind, page);
+  if (provider === "unsplash") return unsplashSearch(key, query, page);
+  return pixabaySearch(key, query, kind, page);
+}
+
 export async function searchMedia(
   keys: ProviderKeys,
   query: string,
   kind: "image" | "video" = "image",
   page = 1,
 ): Promise<SearchPage> {
-  const searches: Promise<SearchPage>[] = [];
-  if (keys.pexels) searches.push(pexelsSearch(keys.pexels, query, kind, page));
-  if (keys.unsplash && kind === "image") searches.push(unsplashSearch(keys.unsplash, query, page));
-  if (keys.pixabay) searches.push(pixabaySearch(keys.pixabay, query, kind, page));
+  const searches = stockProviders(keys, kind).map((p) => searchProvider(p, keys[p]!, query, kind, page));
 
   const settled = await Promise.allSettled(searches);
   const pages = settled.flatMap((s) => (s.status === "fulfilled" ? [s.value] : []));

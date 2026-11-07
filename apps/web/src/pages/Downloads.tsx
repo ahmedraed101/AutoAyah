@@ -13,7 +13,7 @@ type Scope = "whole" | "one" | "range";
 type Form = { type: Kind; ids: Partial<Record<Kind, string>>; scope: Scope; from: number; to: number };
 
 const KINDS: Kind[] = ["recitation", "mushaf", "tafsir", "translation"];
-const SECTIONS: LibraryType[] = ["recitation", "mushaf", "tafsir", "translation", "text", "imports", "app"];
+const SECTIONS: LibraryType[] = ["recitation", "mushaf", "tafsir", "translation", "text", "backgrounds", "imports", "app"];
 const MUSHAF_PAGES = 604;
 const ACTIVE = new Set<DownloadTask["status"]>(["queued", "running"]);
 
@@ -104,6 +104,7 @@ export function Downloads() {
     if (g.type === "mushaf") return t("mushafMadani");
     if (g.type === "text") return t("quranText");
     if (g.type === "app") return t("appData");
+    if (g.type === "backgrounds") return t(g.id === "full" ? "bgFull" : "bgPreviews");
     return (lang === "ar" && g.nameAr) || g.name;
   };
 
@@ -186,7 +187,7 @@ export function Downloads() {
         {sections.map(([type, list]) => (
           <div key={type} className="lib-section">
             <h3>{t(`sec_${type}`)}</h3>
-            {type === "text" || type === "app" || type === "recitation" ? <p className="field-hint">{t(`secHint_${type}`)}</p> : null}
+            {type === "text" || type === "app" || type === "recitation" || type === "backgrounds" ? <p className="field-hint">{t(`secHint_${type}`)}</p> : null}
             <ul className="list">
               {list.map((g) => (
                 <GroupRow
@@ -435,6 +436,7 @@ function GroupRow({
     g.type === "recitation" ? [full ? t("surahsComplete", { n: n(full) }) : "", partial ? t("surahsPartial", { n: n(partial) }) : ""].filter(Boolean).join(" · ") : "",
     g.type === "mushaf" ? t("pagesSaved", { n: n(g.pages.length), total: n(MUSHAF_PAGES) }) : "",
     g.type === "tafsir" || g.type === "translation" || g.type === "text" ? t("surahsSaved", { n: n(g.surahs.length) }) : "",
+    g.type === "backgrounds" ? t("bgCount", { n: n(g.files) }) : "",
     formatBytes(g.bytes),
   ]
     .filter(Boolean)

@@ -81,6 +81,19 @@ export class Db {
         method TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS media_library (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        item_json TEXT NOT NULL,
+        preview_file TEXT,
+        checked INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS media_cursors (
+        key TEXT PRIMARY KEY,
+        next_page INTEGER NOT NULL,
+        done INTEGER NOT NULL DEFAULT 0
+      );
       CREATE INDEX IF NOT EXISTS jobs_status_idx ON jobs(status);
       CREATE INDEX IF NOT EXISTS jobs_hash_idx ON jobs(config_hash);
       CREATE INDEX IF NOT EXISTS jobs_created_idx ON jobs(created_at);
@@ -204,7 +217,59 @@ export class Db {
       )
       .run(row.id, row.provider, row.media_id, row.has_person, row.confidence, row.method, row.created_at);
   }
+
+  // Background media library
+  listLibraryMedia(kind: string): LibraryMediaRow[] {
+    return this.raw.prepare("SELECT * FROM media_library WHERE kind = ? ORDER BY rowid").all(kind) as LibraryMediaRow[];
+  }
+
+  getLibraryMedia(id: string): LibraryMediaRow | undefined {
+    return this.raw.prepare("SELECT * FROM media_library WHERE id = ?").get(id) as LibraryMediaRow | undefined;
+  }
+
+  hasLibraryMedia(id: string): boolean {
+    return Boolean(this.raw.prepare("SELECT 1 FROM media_library WHERE id = ?").get(id));
+  }
+
+  insertLibraryMedia(row: LibraryMediaRow) {
+    this.raw
+      .prepare(`INSERT OR IGNORE INTO media_library (id,kind,item_json,preview_file,checked,created_at) VALUES (?,?,?,?,?,?)`)
+      .run(row.id, row.kind, row.item_json, row.preview_file, row.checked, row.created_at);
+  }
+
+  markLibraryMediaChecked(id: string) {
+    this.raw.prepare("UPDATE media_library SET checked = 1 WHERE id = ?").run(id);
+  }
+
+  deleteLibraryMedia(id: string) {
+    this.raw.prepare("DELETE FROM media_library WHERE id = ?").run(id);
+  }
+
+  clearLibraryMedia() {
+    this.raw.prepare("DELETE FROM media_library").run();
+  }
+
+  getCursor(key: string): CursorRow | undefined {
+    return this.raw.prepare("SELECT * FROM media_cursors WHERE key = ?").get(key) as CursorRow | undefined;
+  }
+
+  setCursor(row: CursorRow) {
+    this.raw
+      .prepare(`INSERT INTO media_cursors (key,next_page,done) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET next_page=excluded.next_page, done=excluded.done`)
+      .run(row.key, row.next_page, row.done);
+  }
 }
+
+export type LibraryMediaRow = {
+  id: string;
+  kind: string;
+  item_json: string;
+  preview_file: string | null;
+  checked: number;
+  created_at: string;
+};
+
+export type CursorRow = { key: string; next_page: number; done: number };
 
 export function openDb(dbPath: string) {
   return new Db(dbPath);
