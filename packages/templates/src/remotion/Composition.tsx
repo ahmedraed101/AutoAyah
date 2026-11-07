@@ -1,6 +1,6 @@
 import { AbsoluteFill, Audio, Img, Loop, OffthreadVideo, Sequence, Video, interpolate, useCurrentFrame } from "remotion";
-import { useEffect, useState } from "react";
-import { facingPage, type Slide } from "@autoayah/core";
+import { useEffect, useState, type CSSProperties } from "react";
+import { facingPage, type Slide, type Transition } from "@autoayah/core";
 import type { CompositionProps } from "../types";
 import { BackgroundLayer } from "../Background";
 import { AyahTafsirSlide, MushafPageSlide, type SlideProps } from "../slides";
@@ -177,5 +177,22 @@ function SpanSlides({ layout, backgrounds, basmala, surahNames, fps, ...rest }: 
   const mode = layout.mode;
   // Every ayah view shows the tafsir card when a tafsir is selected.
   const body = mode === "mushafPage" || mode === "mushafWords" ? <MushafPageSlide {...props} /> : <AyahTafsirSlide {...props} />;
-  return <AbsoluteFill style={{ opacity: state.enter }}>{body}</AbsoluteFill>;
+  return <AbsoluteFill style={transitionStyle(layout.transition, state, rest.width, rest.height)}>{body}</AbsoluteFill>;
+}
+
+/** Slides move the way the Mushaf reads: the next one comes in from the left, the current one leaves to the right. */
+function transitionStyle(kind: Transition, { enter, shift }: { enter: number; shift: number }, width: number, height: number): CSSProperties {
+  if (kind === "none" || shift === 0) return {};
+  switch (kind) {
+    case "slide":
+      return { transform: `translateX(${shift * width}px)` };
+    case "rise":
+      return { opacity: enter, transform: `translateY(${-shift * height * 0.08}px)` };
+    case "zoom":
+      return { opacity: enter, transform: `scale(${1 + shift * 0.08})` };
+    case "blur":
+      return { opacity: enter, filter: `blur(${Math.abs(shift) * width * 0.02}px)` };
+    default:
+      return { opacity: enter };
+  }
 }

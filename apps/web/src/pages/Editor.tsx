@@ -42,6 +42,7 @@ const EXPORTS: { value: VideoConfig["export"]; label: string }[] = [
 ];
 const PAPERS: VideoConfig["style"]["mushafPaper"][] = ["auto", "ivory", "white", "sepia", "mint", "night"];
 const FRAMES: VideoConfig["style"]["mushafFrame"][] = ["classic", "ornate", "simple", "card", "none"];
+const TRANSITIONS: VideoConfig["style"]["transition"][] = ["fade", "slide", "rise", "zoom", "blur", "none"];
 const MAX_PREVIEW_HEIGHT = 720;
 const percent = (v: number) => `${Math.round(v * 100)}%`;
 const clock = (sec: number) => {
@@ -738,6 +739,13 @@ export function Editor() {
                     value={config.style.mushafFrame}
                     onChange={(mushafFrame) => style({ mushafFrame })}
                     options={FRAMES.map((value) => ({ value, label: t(`frame_${value}`) }))}
+                  />
+                </Group>
+                <Group label={t("transition")}>
+                  <Segmented
+                    value={config.style.transition}
+                    onChange={(transition) => style({ transition })}
+                    options={TRANSITIONS.map((value) => ({ value, label: t(`transition_${value}`) }))}
                   />
                 </Group>
               </Section>

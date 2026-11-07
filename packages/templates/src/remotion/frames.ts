@@ -1,4 +1,4 @@
-import { isMushafMode, isMushafSpread, needsWordTimings, type Slide, type Timeline } from "@autoayah/core";
+import { isMushafMode, isMushafSpread, needsWordTimings, type Slide, type Timeline, type Transition } from "@autoayah/core";
 import type { CompositionProps } from "../types";
 
 export const PAGE_FADE_FRAMES = 8;
@@ -13,12 +13,14 @@ type MushafPage = NonNullable<CompositionProps["mushafPages"]>[number];
 
 const ramp = (local: number, frames: number) => (frames ? Math.min(1, Math.max(0, local / frames)) : 1);
 const smooth = (t: number) => t * t * (3 - 2 * t);
-/** Eased 0→1 over `frames` from the start of an interval and 1→0 over `frames` before its end. */
-const fadeInOut = (local: number, duration: number, fadeIn: boolean, fadeOut: boolean) => {
+/** Eased 0→1 over `frames` from the start of an interval (`inT`) and 1→0 over `frames` before its end (`outT`). */
+const edges = (local: number, duration: number, fadeIn: boolean, fadeOut: boolean) => {
   const frames = Math.max(1, Math.min(SLIDE_FADE_FRAMES, Math.floor(duration / 3)));
-  const inT = fadeIn ? ramp(local, frames) : 1;
-  const outT = fadeOut ? ramp(duration - local, frames) : 1;
-  return smooth(Math.min(inT, outT));
+  return { inT: smooth(fadeIn ? ramp(local, frames) : 1), outT: smooth(fadeOut ? ramp(duration - local, frames) : 1) };
+};
+const fadeInOut = (local: number, duration: number, fadeIn: boolean, fadeOut: boolean) => {
+  const { inT, outT } = edges(local, duration, fadeIn, fadeOut);
+  return Math.min(inT, outT);
 };
 
 /** Word index being recited, from the reciter's word timings; -1 (nothing lit) when the ayah has none. */
@@ -73,6 +75,7 @@ export type LayoutSpan = {
   mode: string;
   spread: boolean;
   pages: MushafPage[];
+  transition: Transition;
   /** First / last span of the video: no fade before the opening frame or after the closing one. */
   first: boolean;
   last: boolean;
@@ -89,7 +92,15 @@ export function layoutSpans(props: Pick<CompositionProps, "timeline" | "config" 
   const groupOf = (s: Slide) => (s.ayah.page == null ? undefined : spread ? Math.ceil(s.ayah.page / 2) : s.ayah.page);
   const spans = pageSpans(props.timeline.slides, mushaf ? groupOf : null);
   return spans.map((span, i) => {
-    const layout: LayoutSpan = { span, spread, pages, mode: props.config.mode, first: i === 0, last: i === spans.length - 1 };
+    const layout: LayoutSpan = {
+      span,
+      spread,
+      pages,
+      mode: props.config.mode,
+      transition: props.config.style.transition ?? "fade",
+      first: i === 0,
+      last: i === spans.length - 1,
+    };
     if (mushaf && !pageOf(layout, span.slides[0]!.slide.ayah.page)) layout.mode = props.config.mode === "mushafWords" ? "wordHighlight" : "ayah";
     return layout;
   });
@@ -105,6 +116,8 @@ export type SlideState = {
   tafsirOpacity: number;
   /** Opacity of the whole span: fades in after the previous span and out before the next. */
   enter: number;
+  /** Where the span is in its transition: -1 → 0 while it comes in, 0 → 1 while it goes out, 0 in between. */
+  shift: number;
 };
 
 export function slideStateAt(layout: LayoutSpan, frame: number, fps: number): SlideState {
@@ -118,7 +131,9 @@ export function slideStateAt(layout: LayoutSpan, frame: number, fps: number): Sl
   const highlightedWordIndex = needsWordTimings(mode) ? wordIndexAt(slide, local, fps) : -1;
   const tafsir = tafsirPageAt(slide, local);
   // Within a Mushaf page the scan stays put; only the tafsir card hands over from one ayah to the next.
-  const tafsirSwap = grouped ? fadeInOut(local, slide.durationInFrames, pos > 0, !lastInSpan) : 1;
+  const animate = layout.transition !== "none";
+  const tafsirSwap = grouped && animate ? fadeInOut(local, slide.durationInFrames, pos > 0, !lastInSpan) : 1;
+  const { inT, outT } = edges(frame - span.from, span.duration, animate && !layout.first, animate && !layout.last);
   return {
     slide,
     index,
@@ -126,7 +141,8 @@ export function slideStateAt(layout: LayoutSpan, frame: number, fps: number): Sl
     highlightedWordIndex,
     tafsirPageIndex: tafsir.index,
     tafsirOpacity: tafsir.opacity * tafsirSwap,
-    enter: fadeInOut(frame - span.from, span.duration, !layout.first, !layout.last),
+    enter: Math.min(inT, outT),
+    shift: inT < 1 ? inT - 1 : 1 - outT,
   };
 }
 
@@ -191,7 +207,7 @@ export function frameKeys(props: CompositionProps): string[] | null {
     const end = Math.min(totalFrames, layout.span.from + layout.span.duration);
     for (let f = layout.span.from; f < end; f++) {
       const s = slideStateAt(layout, f, fps);
-      keys[f] = `${si}|${s.index}|${s.highlightedWordIndex}|${s.tafsirPageIndex}|${s.tafsirOpacity.toFixed(4)}|${s.enter.toFixed(4)}`;
+      keys[f] = `${si}|${s.index}|${s.highlightedWordIndex}|${s.tafsirPageIndex}|${s.tafsirOpacity.toFixed(4)}|${s.enter.toFixed(4)}|${s.shift.toFixed(4)}`;
     }
   });
   return keys;

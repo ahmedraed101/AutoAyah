@@ -370,9 +370,10 @@ function AyahPage({ props, p, width, height, base }: { props: SlideProps; p: Pal
   const transSize = Math.max(14, width * 0.028);
   const transHeight = translation ? (Math.ceil((translation.length * 0.5 * transSize) / inner) * 1.5 + 1.2) * transSize : 0;
   const room = height - headerSize * 1.9 - frame * 2 - headerSize * 2 - transHeight;
-  // On short pages the running header already names the surah; keep at least two lines for the ayah.
+  // On short pages the running header already names the surah; keep room for the ayah's lines (up to two) at full size.
   const bannerHeight = bannerWidth * 0.12 + headerSize;
-  const banner = room - bannerHeight >= base * 4;
+  const linesAtBase = Math.ceil(slide.ayah.text.length / Math.max(1, inner / (base * QURAN_CHAR_EM)));
+  const banner = room - bannerHeight >= Math.min(2, linesAtBase) * base * 2;
   const bodyHeight = room - (banner ? bannerHeight : 0);
   // The basmala line scales with the ayah, so size once with it at full size, then again at the fitted size.
   const fit = (basmalaSize: number) =>

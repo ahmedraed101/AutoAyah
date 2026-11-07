@@ -24,6 +24,8 @@ export const TimingModeSchema = z.enum(["continuous", "reading"]);
 export const ReadingSpeedSchema = z.enum(["fast", "slow", "verySlow"]);
 export const ExportFormatSchema = z.enum(["mp4", "webm", "png", "srt", "batch"]);
 export const BackgroundTypeSchema = z.enum(["color", "gradient", "image", "video"]);
+export const TransitionSchema = z.enum(["fade", "slide", "rise", "zoom", "blur", "none"]);
+export type Transition = z.infer<typeof TransitionSchema>;
 
 /** Absolute http(s) URL, or a server-relative path such as /uploads/x.jpg. */
 export const MediaUrlSchema = z
@@ -80,6 +82,8 @@ export const StyleConfigSchema = z.object({
   mushafPaper: z.enum(["auto", "ivory", "white", "sepia", "mint", "night"]).default("auto"),
   /** Mushaf modes: frame drawn around the page. */
   mushafFrame: z.enum(["classic", "ornate", "simple", "card", "none"]).default("classic"),
+  /** How one ayah (or Mushaf page) hands over to the next. */
+  transition: TransitionSchema.default("fade"),
 });
 
 export const TimingConfigSchema = z.object({

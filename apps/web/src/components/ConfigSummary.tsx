@@ -45,6 +45,7 @@ function facts(raw: VideoConfig, catalog: Catalog, t: TFunction, lang: string): 
   const extra: Fact[] = [
     ...(c.translation ? [] : [{ key: "translation", text: `${t("translation")}: ${t("none")}` }]),
     ...(ambience ? [] : [{ key: "ambience", text: `${t("ambience")}: ${t("none")}` }]),
+    { key: "transition", text: `${t("transition")}: ${t(`transition_${c.style.transition ?? "fade"}`)}` },
     { key: "fontSize", text: `${t("fontSize")}: ${c.style.fontSize}` },
     {
       key: "colors",
