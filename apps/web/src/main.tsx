@@ -5,7 +5,6 @@ import "@fontsource-variable/readex-pro";
 import "./i18n";
 import "./styles.css";
 import { api } from "./api";
-import { Rosette } from "./components/Icon";
 import { Layout } from "./components/Layout";
 import { Downloads } from "./pages/Downloads";
 import { Editor } from "./pages/Editor";
@@ -48,7 +47,7 @@ function App() {
   if (!ready)
     return (
       <div className="boot" aria-label="Loading">
-        <Rosette size={40} />
+        <img className="brand-mark" src="/icon.svg" alt="" width={48} height={48} />
       </div>
     );
   if (needLogin) {

@@ -208,15 +208,41 @@ function Watermark({ text, p, u }: { text: string; p: Palette; u: number }) {
 /** `roomy` adds side margin for content that is narrower than the frame (the two-page spread). */
 const panelPad = (u: number, roomy = false) => ({ y: 40 * u, x: (roomy ? 96 : 36) * u });
 
+/** Hex (#rgb / #rrggbb) with a 0–1 alpha channel for the media panel. */
+function withAlpha(hex: string, alpha: number): string {
+  const raw = hex.replace("#", "").trim();
+  const full =
+    raw.length === 3
+      ? raw
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : raw.slice(0, 6);
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return hex;
+  const a = Math.round(Math.min(1, Math.max(0, alpha)) * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return `#${full}${a}`;
+}
+
+/** Readable panel fill behind text when the background is a photo/video. */
+function mediaPanelBackground(style: StyleConfig, page: string): string {
+  const hex =
+    style.mediaPanelColor === "white" ? "#ffffff" : style.mediaPanelColor === "black" ? "#0b0f0c" : page;
+  return withAlpha(hex, style.mediaPanelOpacity ?? 0.9);
+}
+
 function Frame({
   p,
   l,
+  style,
   overMedia,
   fit,
   children,
 }: {
   p: Palette;
   l: Layout;
+  style: StyleConfig;
   overMedia?: boolean;
   /** Shrink the panel to its content instead of spanning the full width. */
   fit?: boolean;
@@ -225,7 +251,7 @@ function Frame({
   const pad = panelPad(l.u, fit);
   const panel: CSSProperties = overMedia
     ? {
-        background: `${p.page}e6`,
+        background: mediaPanelBackground(style, p.page),
         borderRadius: 36 * l.u,
         padding: `${pad.y}px ${pad.x}px`,
         boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
@@ -471,7 +497,7 @@ export function AyahTafsirSlide(props: SlideProps) {
     const pageWidth = hasTafsir ? row * ayahShareFor(style, 0.5) : Math.min(row, available * 1.35);
     const tafsirWidth = row - pageWidth;
     return (
-      <Frame p={p} l={l} overMedia={overMedia}>
+      <Frame p={p} l={l} style={style} overMedia={overMedia}>
         <div style={{ display: "flex", flexDirection: "row", gap: l.columnGap, alignItems: "center", justifyContent: "center" }}>
           <AyahPage props={props} p={p} width={pageWidth} height={available} base={base} />
           {hasTafsir ? (
@@ -487,7 +513,7 @@ export function AyahTafsirSlide(props: SlideProps) {
 
   const ayahShare = hasTafsir ? ayahShareFor(style, 0.45) : 1;
   return (
-    <Frame p={p} l={l} overMedia={overMedia}>
+    <Frame p={p} l={l} style={style} overMedia={overMedia}>
       <AyahPage props={props} p={p} width={l.columnWidth} height={available * ayahShare - (hasTafsir ? l.gap : 0)} base={base} />
       {hasTafsir ? <TafsirBlock props={props} l={l} p={p} maxHeight={available * (1 - ayahShare)} /> : null}
       {watermark}
@@ -782,7 +808,7 @@ export function MushafPageSlide(props: SlideProps) {
     const facing = { ...props, mushafPage: props.facingPage, highlightedWordIndex: -1 };
     const sides = mushafPage.page % 2 ? [facing, props] : [props, facing];
     return (
-      <Frame p={p} l={sl} overMedia={overMedia} fit>
+      <Frame p={p} l={sl} style={style} overMedia={overMedia} fit>
         <div style={{ display: "flex", flexDirection: "row", gap: gutter, alignItems: "center", justifyContent: "center", direction: "ltr" }}>
           {sides.map((side) =>
             side.mushafPage?.image ? (
@@ -804,7 +830,7 @@ export function MushafPageSlide(props: SlideProps) {
     const pageWidth = mushafPage.image ? Math.min(maxPage, scanBox({ ...mushafPage, image: mushafPage.image }, maxPage, available).outerWidth) : maxPage;
     const tafsirWidth = row - pageWidth;
     return (
-      <Frame p={p} l={l} overMedia={overMedia}>
+      <Frame p={p} l={l} style={style} overMedia={overMedia}>
         <div style={{ display: "flex", flexDirection: "row", gap: l.columnGap, alignItems: "center", justifyContent: "center" }}>
           <div style={{ flex: "none", display: "flex", flexDirection: "column" }}>{page(maxPage, available)}</div>
           {hasTafsir ? (
@@ -820,7 +846,7 @@ export function MushafPageSlide(props: SlideProps) {
 
   const pageShare = hasTafsir ? 0.68 : 1;
   return (
-    <Frame p={p} l={l} overMedia={overMedia}>
+    <Frame p={p} l={l} style={style} overMedia={overMedia}>
       {page(l.columnWidth, available * pageShare)}
       {hasTafsir ? (
         <div style={{ height: available * (1 - pageShare) - l.gap, display: "flex", flexDirection: "column", gap: l.gap * 0.5, overflow: "hidden" }}>

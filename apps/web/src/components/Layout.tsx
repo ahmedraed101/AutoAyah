@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useEditor } from "../store";
-import { Icon, Rosette, type IconName } from "./Icon";
+import { Icon, type IconName } from "./Icon";
 
 export function Layout() {
   const { t, i18n } = useTranslation();
@@ -46,7 +46,7 @@ export function Layout() {
     <div className={pathname === "/" ? "shell shell--editor" : "shell"}>
       <header className="shell-bar">
         <div className="brand">
-          <Rosette size={26} />
+          <img className="brand-mark" src="/icon.svg" alt="" width={28} height={28} />
           <span>{t("brand")}</span>
         </div>
         {toggles}
@@ -54,7 +54,7 @@ export function Layout() {
 
       <nav className="shell-nav" aria-label={t("brand")}>
         <div className="brand rail-only">
-          <Rosette size={30} />
+          <img className="brand-mark" src="/icon.svg" alt="" width={32} height={32} />
         </div>
         {links.map((l) => (
           <NavLink key={l.to} to={l.to} end={l.to === "/"} className="nav-item">

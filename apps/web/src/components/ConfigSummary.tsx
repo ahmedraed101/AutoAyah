@@ -97,7 +97,7 @@ export function ConfigSummary({ config, differs }: { config: VideoConfig; differ
     <ul className="config-chips">
       {shown.map((f) => (
         <li key={f.key} className={differs?.has(f.key) ? "chip diff" : "chip"} title={f.title}>
-          {f.swatches?.map((s, i) => <span key={i} className="swatch" style={{ background: s }} />)}
+          {f.swatches?.map((s, i) => <span key={i} className="chip-dot" style={{ background: s }} />)}
           <bdi>{f.text}</bdi>
         </li>
       ))}

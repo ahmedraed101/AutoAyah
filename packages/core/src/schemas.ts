@@ -78,6 +78,10 @@ export const StyleConfigSchema = z.object({
   watermarkText: z.string().default("AutoAyah"),
   /** Draw a translucent panel behind the content when the background is a photo or video. */
   mediaPanel: z.boolean().default(true),
+  /** Panel fill when over media: auto follows the light/dark theme (white / near-black). */
+  mediaPanelColor: z.enum(["auto", "white", "black"]).default("auto"),
+  /** Panel opacity when over media (0 = invisible, 1 = solid). */
+  mediaPanelOpacity: z.number().min(0).max(1).default(0.9),
   /** Mushaf modes: paper and ink of the scanned page ("auto" follows the light/dark theme). */
   mushafPaper: z.enum(["auto", "ivory", "white", "sepia", "mint", "night"]).default("auto"),
   /** Mushaf modes: frame drawn around the page. */

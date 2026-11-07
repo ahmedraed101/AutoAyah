@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Player, type PlayerRef } from "@remotion/player";
 import { useTranslation } from "react-i18next";
 import {
@@ -89,6 +90,8 @@ export function Editor() {
   const player = useRef<PlayerRef>(null);
   const [playingAyah, setPlayingAyah] = useState<string>();
   const [stageSize, setStageSize] = useState({ width: 400, height: 700 });
+  const [fullscreenPreview, setFullscreenPreview] = useState(false);
+  const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
 
   useEffect(() => {
     const el = stage.current;
@@ -99,6 +102,24 @@ export function Editor() {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (!fullscreenPreview) return;
+    const sync = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFullscreenPreview(false);
+    };
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    sync();
+    window.addEventListener("resize", sync);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("resize", sync);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [fullscreenPreview]);
 
   useEffect(() => {
     const fail = (e: Error) => setError(e.message);
@@ -216,6 +237,14 @@ export function Editor() {
     const scale = Math.min(maxH / aspect.height, stageSize.width / aspect.width);
     return { width: Math.round(aspect.width * scale), height: Math.round(aspect.height * scale) };
   }, [aspect, stageSize]);
+  const fullscreenStyle = useMemo(() => {
+    const pad = 16;
+    const chrome = 56;
+    const maxW = Math.max(160, viewport.width - pad * 2);
+    const maxH = Math.max(160, viewport.height - chrome - pad * 2);
+    const scale = Math.min(maxW / aspect.width, maxH / aspect.height);
+    return { width: Math.round(aspect.width * scale), height: Math.round(aspect.height * scale) };
+  }, [aspect, viewport]);
 
   const compose = async () => {
     if (missing.reciter) {
@@ -364,52 +393,74 @@ export function Editor() {
   };
   const viewBlocker = !canUseMode(view, caps) ? t("connectQul") : undefined;
 
+  const previewPlayer = (size: { width: number; height: number }, active: boolean) =>
+    shown ? (
+      <div className="player">
+        <Player
+          component={AutoAyahComposition}
+          inputProps={{
+            timeline: shown.timeline,
+            config: shown.config,
+            surahName: shown.surahName,
+            tafsirName: shown.tafsirName,
+            translationName: shown.translationName,
+            basmala: shown.basmala,
+            surahNames: shown.surahNames,
+            mushafPages: shown.mushafPages,
+          }}
+          durationInFrames={Math.max(1, shown.timeline.totalFrames)}
+          fps={shown.timeline.fps}
+          compositionWidth={shown.timeline.width}
+          compositionHeight={shown.timeline.height}
+          style={size}
+          ref={active ? player : undefined}
+          acknowledgeRemotionLicense
+          controls={isComposed}
+          clickToPlay={isComposed}
+        />
+      </div>
+    ) : !missing.surah ? (
+      <div className="player-placeholder" style={size}>
+        <Rosette size={40} />
+        <span>{t("loadingPreview")}</span>
+      </div>
+    ) : (
+      <div className="player-placeholder start" style={size} dir={lang === "ar" ? "rtl" : "ltr"}>
+        <Rosette size={40} />
+        <strong>{t("startTitle")}</strong>
+        {panel !== "ayat" ? (
+          <button type="button" className="btn btn-quiet" onClick={() => setPanel("ayat")}>
+            {t("startChoose")}
+          </button>
+        ) : null}
+      </div>
+    );
+
   return (
     <div className="editor">
       <section className="stage" aria-label={t("preview")}>
+        <div className="stage-toolbar">
+          <span className="stage-toolbar-label">{t("preview")}</span>
+          <button
+            type="button"
+            className="icon-btn stage-fs-btn"
+            aria-label={t("fullscreenPreview")}
+            title={t("fullscreenPreview")}
+            onClick={() => setFullscreenPreview(true)}
+          >
+            <Icon name="expand" size={20} />
+          </button>
+        </div>
         <div className="stage-player" ref={stage}>
           {/* Remotion AbsoluteFill breaks under document dir=rtl — keep player LTR-isolated */}
           <div className="preview-stage" dir="ltr">
-            {shown ? (
-              <div className="player">
-                <Player
-                  component={AutoAyahComposition}
-                  inputProps={{
-                    timeline: shown.timeline,
-                    config: shown.config,
-                    surahName: shown.surahName,
-                    tafsirName: shown.tafsirName,
-                    translationName: shown.translationName,
-                    basmala: shown.basmala,
-                    surahNames: shown.surahNames,
-                    mushafPages: shown.mushafPages,
-                  }}
-                  durationInFrames={Math.max(1, shown.timeline.totalFrames)}
-                  fps={shown.timeline.fps}
-                  compositionWidth={shown.timeline.width}
-                  compositionHeight={shown.timeline.height}
-                  style={playerStyle}
-                  ref={player}
-                  acknowledgeRemotionLicense
-                  controls={isComposed}
-                  clickToPlay={isComposed}
-                />
-              </div>
-            ) : !missing.surah ? (
-              <div className="player-placeholder" style={playerStyle}>
-                <Rosette size={40} />
-                <span>{t("loadingPreview")}</span>
-              </div>
+            {fullscreenPreview ? (
+              <button type="button" className="player-placeholder" style={playerStyle} onClick={() => setFullscreenPreview(false)}>
+                <Icon name="collapse" size={22} />
+                <span>{t("exitFullscreenPreview")}</span>
+              </button>
             ) : (
-              <div className="player-placeholder start" style={playerStyle} dir={lang === "ar" ? "rtl" : "ltr"}>
-                <Rosette size={40} />
-                <strong>{t("startTitle")}</strong>
-                {panel !== "ayat" ? (
-                  <button type="button" className="btn btn-quiet" onClick={() => setPanel("ayat")}>
-                    {t("startChoose")}
-                  </button>
-                ) : null}
-              </div>
+              previewPlayer(playerStyle, true)
             )}
           </div>
         </div>
@@ -768,7 +819,7 @@ export function Editor() {
               </Section>
 
               <Section title={t("colors")}>
-                <div className="swatches">
+                <div className="color-picks">
                   {(
                     [
                       ["primaryColor", t("primaryColor")],
@@ -776,9 +827,12 @@ export function Editor() {
                       ["cardColor", t("cardColor")],
                     ] as const
                   ).map(([k, label]) => (
-                    <label key={k} className="swatch">
+                    <label key={k} className="color-pick">
                       <input type="color" value={config.style[k]} onChange={(e) => style({ [k]: e.target.value })} />
-                      <span>{label}</span>
+                      <span className="color-pick-meta">
+                        <span className="color-pick-label">{label}</span>
+                        <span className="color-pick-hex">{config.style[k]}</span>
+                      </span>
                     </label>
                   ))}
                 </div>
@@ -820,9 +874,41 @@ export function Editor() {
                 </button>
               </div>
               {selectedBg?.type === "image" || selectedBg?.type === "video" ? (
-                <div className="switches">
-                  <Switch label={t("mediaPanel")} checked={config.style.mediaPanel} onChange={(mediaPanel) => style({ mediaPanel })} />
-                </div>
+                <>
+                  <div className="switches">
+                    <Switch label={t("mediaPanel")} checked={config.style.mediaPanel} onChange={(mediaPanel) => style({ mediaPanel })} />
+                  </div>
+                  {config.style.mediaPanel ? (
+                    <Section title={t("mediaPanel")}>
+                      <Group label={t("mediaPanelColor")}>
+                        <Segmented
+                          value={config.style.mediaPanelColor}
+                          onChange={(mediaPanelColor) => style({ mediaPanelColor })}
+                          options={(["auto", "white", "black"] as const).map((value) => ({
+                            value,
+                            label: t(`panel_${value}`),
+                          }))}
+                        />
+                      </Group>
+                      <Slider
+                        label={t("mediaPanelOpacity")}
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={1 - config.style.mediaPanelOpacity}
+                        display={percent(1 - config.style.mediaPanelOpacity)}
+                        onChange={(transparent) => style({ mediaPanelOpacity: 1 - transparent })}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-quiet"
+                        onClick={() => style({ mediaPanelColor: "auto", mediaPanelOpacity: 0.9 })}
+                      >
+                        {t("mediaPanelReset")}
+                      </button>
+                    </Section>
+                  ) : null}
+                </>
               ) : null}
               <Segmented
                 value={mediaKind}
@@ -952,6 +1038,29 @@ export function Editor() {
           </button>
         </div>
       </footer>
+
+      {fullscreenPreview
+        ? createPortal(
+            <div className="preview-fs" role="dialog" aria-modal="true" aria-label={t("preview")}>
+              <div className="preview-fs-bar">
+                <span className="preview-fs-title">{t("preview")}</span>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label={t("exitFullscreenPreview")}
+                  title={t("exitFullscreenPreview")}
+                  onClick={() => setFullscreenPreview(false)}
+                >
+                  <Icon name="collapse" size={22} />
+                </button>
+              </div>
+              <div className="preview-fs-body" dir="ltr">
+                {previewPlayer(fullscreenStyle, true)}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

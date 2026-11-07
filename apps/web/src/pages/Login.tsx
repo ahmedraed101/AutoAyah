@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
-import { Rosette } from "../components/Icon";
-
 export function Login({ onOk }: { onOk: () => void }) {
   const { t } = useTranslation();
   const [password, setPassword] = useState("");
@@ -20,7 +18,7 @@ export function Login({ onOk }: { onOk: () => void }) {
       }}
     >
       <div className="brand">
-        <Rosette size={34} />
+        <img className="brand-mark" src="/icon.svg" alt="" width={36} height={36} />
         <span>{t("brand")}</span>
       </div>
       <label className="field">

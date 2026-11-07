@@ -68,7 +68,7 @@ export const useEditor = create<State>((set, get) => ({
   missing: { surah: true, reciter: true },
   projectName: "Untitled",
   theme: stored("aa-theme", ["dark", "light"] as const, "dark"),
-  lang: stored("aa-lang", ["en", "ar"] as const, "en"),
+  lang: stored("aa-lang", ["en", "ar"] as const, "ar"),
   panel: "ayat",
   setConfig: (patch) => {
     set((s) => apply(s, { ...s.config, ...patch }, patch));

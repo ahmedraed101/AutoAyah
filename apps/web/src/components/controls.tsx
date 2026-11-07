@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode, SelectHTMLAttributes } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode, type SelectHTMLAttributes } from "react";
 import { Icon } from "./Icon";
 
 export function Field({ label, hint, children }: { label: ReactNode; hint?: ReactNode; children: ReactNode }) {
@@ -110,6 +110,18 @@ export function Stepper({
   onChange: (v: number) => void;
 }) {
   const clamp = (v: number) => Math.min(max, Math.max(min, v));
+  // null = show committed value; string draft lets the field go empty while retyping
+  const [draft, setDraft] = useState<string | null>(null);
+  useEffect(() => setDraft(null), [value]);
+
+  const commit = (raw: string) => {
+    const n = Number(raw);
+    setDraft(null);
+    if (raw.trim() === "" || Number.isNaN(n)) return;
+    const next = clamp(n);
+    if (next !== value) onChange(next);
+  };
+
   return (
     <div className="field">
       <span className="field-label">{label}</span>
@@ -118,13 +130,23 @@ export function Stepper({
           <Icon name="minus" size={18} />
         </button>
         <input
-          type="number"
+          type="text"
           inputMode="numeric"
+          pattern="[0-9]*"
           aria-label={label}
-          min={min}
-          max={max}
-          value={value}
-          onChange={(e) => e.target.value && onChange(Math.min(max, Number(e.target.value)))}
+          value={draft ?? String(value)}
+          onChange={(e) => {
+            const raw = e.target.value;
+            if (raw !== "" && !/^\d+$/.test(raw)) return;
+            setDraft(raw);
+            if (raw === "") return;
+            const n = Number(raw);
+            if (n >= min && n <= max) onChange(n);
+          }}
+          onBlur={() => commit(draft ?? String(value))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          }}
         />
         <button type="button" aria-label={`${label} +`} disabled={value >= max} onClick={() => onChange(clamp(value + 1))}>
           <Icon name="plus" size={18} />
