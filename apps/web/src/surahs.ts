@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { endSurah, spansSurahs, type QuranDivisions, type VideoConfig } from "@autoayah/core";
+import { endSurah, spansSurahs, type QuranDivision, type QuranDivisions, type VideoConfig } from "@autoayah/core";
 import { api } from "./api";
 
 export type Surah = { number: number; name: string; englishName: string; numberOfAyahs: number };
@@ -38,7 +38,21 @@ type Range = Pick<VideoConfig, "surah" | "from" | "to"> & { toSurah?: number | n
 
 /** "Al-Kahf 1–10", or "An-Naba 1 – An-Nas 6" when the clip crosses surahs. */
 export function rangeText(c: Range, surahs: Surah[], lang: string) {
+  const d = (n: number) => localDigits(n, lang);
   const first = surahTitle(surahs, c.surah, lang);
-  if (spansSurahs(c)) return `${first} ${c.from} – ${surahTitle(surahs, endSurah(c), lang)} ${c.to}`;
-  return `${first} ${c.from === c.to ? c.from : `${c.from}–${c.to}`}`;
+  if (spansSurahs(c)) return `${first} ${d(c.from)} – ${surahTitle(surahs, endSurah(c), lang)} ${d(c.to)}`;
+  return `${first} ${c.from === c.to ? d(c.from) : `${d(c.from)}–${d(c.to)}`}`;
+}
+
+/** Picker label: "٢ ـ إِنَّ ٱللَّهَ (البقرة ٢٦–٤٣)", "١ ـ بِسْمِ ٱللَّهِ (الفاتحة ١ إلى البقرة ٢٥)". */
+export function divisionLabel(d: QuranDivision, surahs: Surah[], lang: string) {
+  const n = (x: number) => localDigits(x, lang);
+  const name = (s: number) => (lang === "ar" ? surahTitle(surahs, s, lang).replace(/^سُورَةُ\s+/, "") : surahTitle(surahs, s, lang));
+  const { start, end } = d;
+  const span =
+    start.surah !== end.surah
+      ? `${name(start.surah)} ${n(start.ayah)} ${lang === "ar" ? "إلى" : "–"} ${name(end.surah)} ${n(end.ayah)}`
+      : `${name(start.surah)} ${start.ayah === end.ayah ? n(start.ayah) : `${n(start.ayah)}–${n(end.ayah)}`}`;
+  const head = lang === "ar" ? `${n(d.n)} ـ` : `${d.n}.`;
+  return d.opening ? `${head} ${d.opening} (${span})` : `${head} ${span}`;
 }

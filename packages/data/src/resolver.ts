@@ -17,6 +17,7 @@ import {
 } from "@autoayah/core";
 import {
   fetchDivisionStarts,
+  fetchQuranText,
   fetchSurahEditions,
   fetchSurahList,
   PUBLIC_TAFSIRS,
@@ -165,11 +166,30 @@ export function createResolver(opts: ResolveOptions): Resolver {
     return surahsMemo;
   };
 
+  /** First two words of each quarter, read on past one-word ayat (3:1 is only «الٓمٓ»). */
+  const rubOpenings = (starts: { surah: number; ayah: number }[]) =>
+    cachedJson(cache, "rub-openings:v1", "ayah_text", "alquran", async () => {
+      const quran = await fetchQuranText(QURAN_EDITION);
+      return starts.map(({ surah, ayah }) => {
+        const words: string[] = [];
+        for (let n = ayah; words.length < 2 && n <= (quran[surah - 1]?.length ?? 0); n++) {
+          const text = splitBasmala(surah, n, quran[surah - 1]![n - 1]!.replace(/^\uFEFF/, "")).text;
+          words.push(...text.split(/\s+/).filter((w) => w && !MARK_ONLY.test(w)));
+        }
+        return words.slice(0, 2).join(" ");
+      });
+    });
+
   let divisionsMemo: Promise<QuranDivisions> | null = null;
   const getDivisions = () => {
     divisionsMemo ??= cachedJson(cache, "divisions:v1", "ayah_text", "alquran", fetchDivisionStarts)
-      .then((s) => {
-        const rub = divisionsFromStarts(s.rub);
+      .then(async (s) => {
+        const openings = await rubOpenings(s.rub).catch((e) => {
+          console.warn("[divisions] quarter openings unavailable:", (e as Error).message);
+          setTimeout(() => (divisionsMemo = null), 60_000);
+          return [] as string[];
+        });
+        const rub = divisionsFromStarts(s.rub).map((d, i) => (openings[i] ? { ...d, opening: openings[i] } : d));
         return {
           juz: divisionsFromStarts(s.juz),
           hizb: rub.flatMap((q, i) => (i % 4 ? [] : [{ n: i / 4 + 1, start: q.start, end: rub[i + 3]!.end }])),

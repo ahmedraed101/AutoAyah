@@ -45,7 +45,8 @@ export function previousAyah(ref: AyahRef): AyahRef | null {
   return null;
 }
 
-export type QuranDivision = { n: number; start: AyahRef; end: AyahRef };
+/** `opening`: the division's first words in the Uthmani text (set on quarters). */
+export type QuranDivision = { n: number; start: AyahRef; end: AyahRef; opening?: string };
 export type QuranDivisions = Record<Exclude<RangeKind, "surah">, QuranDivision[]>;
 
 /** Turns the start of each division into [start, end] ranges (each ends just before the next begins). */

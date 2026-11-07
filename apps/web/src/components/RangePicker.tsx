@@ -12,7 +12,7 @@ import {
   type RangeKind,
 } from "@autoayah/core";
 import { useEditor } from "../store";
-import { localDigits, rangeText, useDivisions, useSurahs } from "../surahs";
+import { divisionLabel, localDigits, rangeText, useDivisions, useSurahs } from "../surahs";
 import { Field, Select, Stepper } from "./controls";
 
 type Kind = RangeKind | "ayat";
@@ -109,7 +109,7 @@ export function RangePicker() {
             ) : null}
             {(divisions?.[kind] ?? []).map((d) => (
               <option key={d.n} value={d.n}>
-                {`${localDigits(d.n, lang)} · ${rangeText({ surah: d.start.surah, from: d.start.ayah, toSurah: d.end.surah, to: d.end.ayah }, surahs, lang)}`}
+                {divisionLabel(d, surahs, lang)}
               </option>
             ))}
           </Select>

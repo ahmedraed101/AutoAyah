@@ -41,6 +41,12 @@ export async function fetchDivisionStarts(): Promise<{ juz: Ref[]; rub: Ref[]; p
   return { juz: refs("juzs"), rub: refs("hizbQuarters"), page: refs("pages"), manzil: refs("manzils") };
 }
 
+/** The whole Quran in one edition (~2 MB), as each surah's ayah texts in order. */
+export async function fetchQuranText(edition: string): Promise<string[][]> {
+  const { data } = await fetchJson<{ data: { surahs: { ayahs: { text: string }[] }[] } }>(`${API}/quran/${encodeURIComponent(edition)}`);
+  return data.surahs.map((s) => s.ayahs.map((a) => a.text));
+}
+
 export async function fetchSurahEditions(surah: number, editions: string[]): Promise<Edition[]> {
   const ids = editions.filter(Boolean).map(encodeURIComponent).join(",");
   const { data } = await fetchJson<{ data: Edition[] | Edition }>(`${API}/surah/${surah}/editions/${ids}`);
