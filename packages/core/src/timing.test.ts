@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { VideoConfigSchema } from "./schemas.js";
-import { buildTimeline, paginateTafsir } from "./timing.js";
+import { DEFAULT_AYAH_GAP_SECONDS, buildTimeline, paginateTafsir } from "./timing.js";
 import type { ResolvedClip } from "./schemas.js";
 
 const clip: ResolvedClip = {
@@ -49,8 +49,16 @@ describe("buildTimeline", () => {
     });
     const tl = buildTimeline(config, clip);
     expect(tl.slides).toHaveLength(2);
-    expect(tl.slides[0]!.durationInSeconds).toBeCloseTo(4.4, 1);
+    expect(tl.slides[0]!.durationInSeconds).toBeCloseTo(4 + DEFAULT_AYAH_GAP_SECONDS, 1);
     expect(tl.totalFrames).toBeGreaterThan(0);
+  });
+
+  it("adds no gap when the ayat are cut from one recording, and leaves no rounding gaps", () => {
+    const config = VideoConfigSchema.parse({ surah: 1, from: 1, to: 2, reciter: "qdcch-97", mode: "ayah" });
+    const odd = { ...clip, audioGapSeconds: 0, ayat: clip.ayat.map((a) => ({ ...a, audioSeconds: a.audioSeconds + 0.017 })) };
+    const tl = buildTimeline(config, odd);
+    expect(tl.slides[1]!.startFrame).toBe(tl.slides[0]!.durationInFrames);
+    expect(tl.totalSeconds).toBeCloseTo(7.034, 1);
   });
 
   it("reading mode can extend beyond audio", () => {

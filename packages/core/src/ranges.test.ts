@@ -28,7 +28,7 @@ describe("divisions", () => {
     ]);
     expect(first).toEqual({ n: 1, start: { surah: 1, ayah: 1 }, end: { surah: 2, ayah: 141 } });
     expect(last?.end).toEqual({ surah: 114, ayah: 6 });
-    expect(SURAH_AYAH_COUNTS.reduce((a, b) => a + b)).toBe(6236);
+    expect(SURAH_AYAH_COUNTS.reduce((a: number, b) => a + b, 0)).toBe(6236);
   });
 
   it("produces configs the schema accepts", () => {

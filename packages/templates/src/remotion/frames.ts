@@ -1,8 +1,9 @@
-import { isMushafMode, isMushafSpread, type Slide } from "@autoayah/core";
+import { isMushafMode, isMushafSpread, needsWordTimings, type Slide, type Timeline } from "@autoayah/core";
 import type { CompositionProps } from "../types";
 
 export const PAGE_FADE_FRAMES = 8;
-export const SLIDE_FADE_FRAMES = 6;
+/** Each slide fades out and the next fades in over this many frames; the fade-out sits in the reciter's pause after the last word. */
+export const SLIDE_FADE_FRAMES = 10;
 
 /** First frame where a slide is fully faded in: where to land when jumping to an ayah. */
 export const restFrame = (slide: { startFrame: number; durationInFrames: number }) =>
@@ -10,33 +11,25 @@ export const restFrame = (slide: { startFrame: number; durationInFrames: number 
 
 type MushafPage = NonNullable<CompositionProps["mushafPages"]>[number];
 
-const letters = (w: string) => w.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED\s]/g, "").length || 1;
 const ramp = (local: number, frames: number) => (frames ? Math.min(1, Math.max(0, local / frames)) : 1);
+const smooth = (t: number) => t * t * (3 - 2 * t);
+/** Eased 0→1 over `frames` from the start of an interval and 1→0 over `frames` before its end. */
+const fadeInOut = (local: number, duration: number, fadeIn: boolean, fadeOut: boolean) => {
+  const frames = Math.max(1, Math.min(SLIDE_FADE_FRAMES, Math.floor(duration / 3)));
+  const inT = fadeIn ? ramp(local, frames) : 1;
+  const outT = fadeOut ? ramp(duration - local, frames) : 1;
+  return smooth(Math.min(inT, outT));
+};
 
-/**
- * Word index being recited: real timings when available, otherwise estimated from word length
- * (`widths` overrides the per-word weights, e.g. glyph widths on the Mushaf scan).
- */
-export function wordIndexAt(slide: Slide, localFrame: number, fps: number, widths?: number[]): number {
+/** Word index being recited, from the reciter's word timings; -1 (nothing lit) when the ayah has none. */
+export function wordIndexAt(slide: Slide, localFrame: number, fps: number): number {
   const ms = (localFrame / fps) * 1000;
   const timings = slide.ayah.wordTimings;
-  if (timings?.length) {
-    const hit = timings.find((t) => ms >= t.startMs && ms < t.endMs);
-    if (hit) return hit.index - 1;
-    const before = timings.filter((t) => t.endMs <= ms);
-    return before.length ? before[before.length - 1]!.index - 1 : -1;
-  }
-  const weights = widths?.length ? widths : (slide.ayah.words ?? []).map(letters);
-  if (!weights.length || !slide.ayah.audioSeconds) return -1;
-  const total = weights.reduce((a, b) => a + b, 0);
-  const progress = ms / (slide.ayah.audioSeconds * 1000);
-  if (progress >= 1) return weights.length - 1;
-  let acc = 0;
-  for (let i = 0; i < weights.length; i++) {
-    acc += weights[i]! / total;
-    if (progress < acc) return i;
-  }
-  return weights.length - 1;
+  if (!timings?.length) return -1;
+  const hit = timings.find((t) => ms >= t.startMs && ms < t.endMs);
+  if (hit) return hit.index - 1;
+  const before = timings.filter((t) => t.endMs <= ms);
+  return before.length ? before[before.length - 1]!.index - 1 : -1;
 }
 
 /** Tafsir pages share the slide time in proportion to their length, with a short cross-fade. */
@@ -75,7 +68,15 @@ function pageSpans(slides: Slide[], groupOf: ((s: Slide) => number | undefined) 
   return spans;
 }
 
-export type LayoutSpan = { span: PageSpan; mode: string; spread: boolean; pages: MushafPage[] };
+export type LayoutSpan = {
+  span: PageSpan;
+  mode: string;
+  spread: boolean;
+  pages: MushafPage[];
+  /** First / last span of the video: no fade before the opening frame or after the closing one. */
+  first: boolean;
+  last: boolean;
+};
 
 export const pageOf = (layout: LayoutSpan, page: number | undefined) =>
   page == null ? undefined : layout.pages.find((p) => p.page === page);
@@ -86,8 +87,9 @@ export function layoutSpans(props: Pick<CompositionProps, "timeline" | "config" 
   const spread = isMushafSpread(props.config);
   const pages = props.mushafPages ?? [];
   const groupOf = (s: Slide) => (s.ayah.page == null ? undefined : spread ? Math.ceil(s.ayah.page / 2) : s.ayah.page);
-  return pageSpans(props.timeline.slides, mushaf ? groupOf : null).map((span) => {
-    const layout: LayoutSpan = { span, spread, pages, mode: props.config.mode };
+  const spans = pageSpans(props.timeline.slides, mushaf ? groupOf : null);
+  return spans.map((span, i) => {
+    const layout: LayoutSpan = { span, spread, pages, mode: props.config.mode, first: i === 0, last: i === spans.length - 1 };
     if (mushaf && !pageOf(layout, span.slides[0]!.slide.ayah.page)) layout.mode = "ayahTafsir";
     return layout;
   });
@@ -101,33 +103,80 @@ export type SlideState = {
   highlightedWordIndex: number;
   tafsirPageIndex: number;
   tafsirOpacity: number;
-  /** Opacity of the whole slide (fade-in). */
+  /** Opacity of the whole span: fades in after the previous span and out before the next. */
   enter: number;
 };
 
-export function slideStateAt(layout: LayoutSpan, frame: number, fps: number, surah: number): SlideState {
+export function slideStateAt(layout: LayoutSpan, frame: number, fps: number): SlideState {
   const { span, mode } = layout;
-  const { slide, index } = [...span.slides].reverse().find((s) => s.slide.startFrame <= frame) ?? span.slides[0]!;
+  let pos = 0;
+  while (pos + 1 < span.slides.length && span.slides[pos + 1]!.slide.startFrame <= frame) pos++;
+  const { slide, index } = span.slides[pos]!;
   const local = frame - slide.startFrame;
   const grouped = span.slides.length > 1 || isMushafMode(mode);
-  const pageWords = pageOf(layout, slide.ayah.page)?.words?.[`${slide.ayah.surah ?? surah}:${slide.ayah.number}`];
-  const highlightedWordIndex =
-    mode === "wordHighlight"
-      ? wordIndexAt(slide, local, fps)
-      : mode === "mushafWords"
-        ? wordIndexAt(slide, local, fps, pageWords?.map((b) => b[2]))
-        : -1;
+  const lastInSpan = pos === span.slides.length - 1;
+  const highlightedWordIndex = needsWordTimings(mode) ? wordIndexAt(slide, local, fps) : -1;
   const tafsir = tafsirPageAt(slide, local);
-  const tafsirEnter = ramp(local, grouped && index > 0 ? PAGE_FADE_FRAMES : 0);
+  // Within a Mushaf page the scan stays put; only the tafsir card hands over from one ayah to the next.
+  const tafsirSwap = grouped ? fadeInOut(local, slide.durationInFrames, pos > 0, !lastInSpan) : 1;
   return {
     slide,
     index,
     local,
     highlightedWordIndex,
     tafsirPageIndex: tafsir.index,
-    tafsirOpacity: tafsir.opacity * tafsirEnter,
-    enter: ramp(local, index === 0 || grouped ? 0 : SLIDE_FADE_FRAMES),
+    tafsirOpacity: tafsir.opacity * tafsirSwap,
+    enter: fadeInOut(frame - span.from, span.duration, !layout.first, !layout.last),
   };
+}
+
+/** One stretch of recitation audio: `src` played from `trimBeforeMs` for `durationInFrames`, starting at `fromFrame`. */
+export type AudioClip = {
+  src: string;
+  fromFrame: number;
+  durationInFrames: number;
+  trimBeforeMs: number;
+  /** Audio available in `src` from `trimBeforeMs` on. */
+  audioSeconds: number;
+};
+
+/** A slide held longer than its recitation (hold override, reading time) leaves the rest of the run unplayed. */
+const HOLD_TOLERANCE_SECONDS = 0.05;
+const CONTIGUOUS_MS = 5;
+
+/**
+ * Playback clips for the recitation. Back-to-back ayat cut from one surah recording play as a single clip,
+ * so the room tone never breaks between them; a held slide ends its clip where its audio ends.
+ */
+export function audioClips(timeline: Pick<Timeline, "slides" | "fps">): AudioClip[] {
+  const { fps } = timeline;
+  const clips: AudioClip[] = [];
+  let open: { clip: AudioClip; endMs: number } | null = null;
+  for (const s of timeline.slides) {
+    const { run, audioUrl, audioSeconds } = s.ayah;
+    if (!audioUrl) {
+      open = null;
+      continue;
+    }
+    if (!run) {
+      clips.push({ src: audioUrl, fromFrame: s.startFrame, durationInFrames: s.durationInFrames, trimBeforeMs: 0, audioSeconds });
+      open = null;
+      continue;
+    }
+    const held = s.durationInSeconds > audioSeconds + HOLD_TOLERANCE_SECONDS;
+    const end = held ? Math.min(s.startFrame + s.durationInFrames, s.startFrame + Math.max(1, Math.round(audioSeconds * fps))) : s.startFrame + s.durationInFrames;
+    if (open && open.clip.src === run.url && Math.abs(open.endMs - run.offsetMs) < CONTIGUOUS_MS) {
+      open.clip.durationInFrames = end - open.clip.fromFrame;
+      open.clip.audioSeconds += audioSeconds;
+    } else {
+      const clip = { src: run.url, fromFrame: s.startFrame, durationInFrames: end - s.startFrame, trimBeforeMs: run.offsetMs, audioSeconds };
+      clips.push(clip);
+      open = { clip, endMs: run.offsetMs };
+    }
+    open.endMs = run.offsetMs + audioSeconds * 1000;
+    if (held) open = null;
+  }
+  return clips;
 }
 
 /**
@@ -141,7 +190,7 @@ export function frameKeys(props: CompositionProps): string[] | null {
   layoutSpans(props).forEach((layout, si) => {
     const end = Math.min(totalFrames, layout.span.from + layout.span.duration);
     for (let f = layout.span.from; f < end; f++) {
-      const s = slideStateAt(layout, f, fps, props.config.surah);
+      const s = slideStateAt(layout, f, fps);
       keys[f] = `${si}|${s.index}|${s.highlightedWordIndex}|${s.tafsirPageIndex}|${s.tafsirOpacity.toFixed(4)}|${s.enter.toFixed(4)}`;
     }
   });

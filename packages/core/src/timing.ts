@@ -21,6 +21,9 @@ export type Timeline = {
   warnings: string[];
 };
 
+/** Pause added after each ayah when every ayah is its own file (those files already end in ~0.5 s of the reciter's own pause). */
+export const DEFAULT_AYAH_GAP_SECONDS = 0.15;
+
 const words = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 
 /** Split long tafsir into pages that fit on a card (~240 chars of Arabic at a readable size). */
@@ -83,13 +86,17 @@ export function buildTimeline(config: VideoConfig, clip: ResolvedClip): Timeline
   if (!clip.draft && (config.mode === "wordHighlight" || config.mode === "mushafWords")) {
     const missing = clip.ayat.filter((a) => !a.wordTimings?.length).length;
     if (missing) {
-      warnings.push(`${missing} ayah(s) lack word timings for this reciter. Highlight timing is estimated from word length.`);
+      warnings.push(`${missing} ayah(s) lack word timings for this reciter. Those ayat show no word highlight.`);
     }
   }
 
+  const gap = clip.audioGapSeconds ?? DEFAULT_AYAH_GAP_SECONDS;
+  let seconds = 0;
   for (const ayah of clip.ayat) {
-    const durationInSeconds = Math.max(0.5, ayahDuration(ayah, config) + 0.4);
-    const durationInFrames = Math.max(1, Math.ceil(durationInSeconds * FPS));
+    // Slides are placed on the running total so frame rounding never opens a gap between back-to-back ayat.
+    seconds += Math.max(0.5, ayahDuration(ayah, config) + (ayah.run ? 0 : gap));
+    const durationInFrames = Math.max(1, Math.round(seconds * FPS) - frame);
+    const durationInSeconds = durationInFrames / FPS;
     const tafsirPages =
       config.mode === "ayahTafsir"
         ? paginateTafsir(ayah.tafsir ?? "", TAFSIR_PAGE_CHARS[config.aspectRatio as AspectRatio] ?? 240)

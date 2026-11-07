@@ -5,9 +5,9 @@ import type { CompositionProps } from "../types";
 import { BackgroundLayer } from "../Background";
 import { AyahSlide, AyahTafsirSlide, MushafPageSlide, WordHighlightSlide, type SlideProps } from "../slides";
 import { ensureArabicFonts } from "../fonts";
-import { layoutSpans, pageOf, slideStateAt, type LayoutSpan } from "./frames";
+import { audioClips, layoutSpans, pageOf, slideStateAt, type LayoutSpan } from "./frames";
 
-export { frameKeys, wordIndexAt } from "./frames";
+export { audioClips, frameKeys, wordIndexAt } from "./frames";
 
 type Span = { backgroundIndex: number; from: number; duration: number };
 
@@ -122,13 +122,17 @@ const Scene: React.FC<CompositionProps & { muted?: boolean }> = ({
 
       {muted
         ? null
-        : slides.map((slide, i) =>
-            slide.ayah.audioUrl ? (
-              <Sequence key={`audio-${slide.ayah.surah ?? ""}-${slide.ayah.number}-${i}`} from={slide.startFrame} durationInFrames={slide.durationInFrames}>
-                <Audio src={asset(slide.ayah.audioUrl)} volume={(f) => audio.recitationVolume * masterVolAt(slide.startFrame + f)} />
-              </Sequence>
-            ) : null,
-          )}
+        : audioClips(timeline).map((clip) => (
+            <Sequence key={`audio-${clip.fromFrame}`} from={clip.fromFrame} durationInFrames={clip.durationInFrames} premountFor={fps}>
+              {/* Premounted a second early so the next clip is loaded and starts on time instead of jumping in late. */}
+              <Audio
+                src={asset(clip.src)}
+                trimBefore={Math.round((clip.trimBeforeMs / 1000) * fps)}
+                pauseWhenBuffering
+                volume={(f) => audio.recitationVolume * masterVolAt(clip.fromFrame + f) * edgeFade(f, clip.durationInFrames)}
+              />
+            </Sequence>
+          ))}
 
       {audio.ambienceId && !muted ? (
         <Audio src={asset(`/ambience/${audio.ambienceId}.wav`)} volume={(f) => audio.ambienceVolume * masterVolAt(f)} loop />
@@ -136,6 +140,9 @@ const Scene: React.FC<CompositionProps & { muted?: boolean }> = ({
     </AbsoluteFill>
   );
 };
+
+/** Softens the first and last frame of each clip so cut points don't click. */
+const edgeFade = (f: number, duration: number) => (duration < 4 ? 1 : f === 0 || f === duration - 1 ? 0.5 : 1);
 
 const withAssetUrl =
   (asset: (u: string) => string) =>
@@ -150,7 +157,7 @@ type SpanProps = Omit<SlideProps, "slide" | "overMedia" | "mushafPage" | "facing
 };
 
 function SpanSlides({ layout, backgrounds, basmala, surahNames, fps, ...rest }: SpanProps) {
-  const state = slideStateAt(layout, layout.span.from + useCurrentFrame(), fps, rest.surah ?? 0);
+  const state = slideStateAt(layout, layout.span.from + useCurrentFrame(), fps);
   const { ayah } = state.slide;
   const bg = backgrounds[state.slide.backgroundIndex];
   const surah = ayah.surah ?? rest.surah;

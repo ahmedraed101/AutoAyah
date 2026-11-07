@@ -9,8 +9,10 @@ import {
   canUseMode,
   holdOverride,
   isMushafMode,
+  needsWordTimings,
   projectName,
   spansSurahs,
+  withoutWordHighlight,
   type Job,
   type VideoConfig,
   type VideoMode,
@@ -62,6 +64,8 @@ export function Editor() {
   const divisionTitle = useDivisionTitle();
   const [reciters, setReciters] = useState<Option[]>([]);
   const [tafsirs, setTafsirs] = useState<Option[]>([]);
+  // Unknown until the catalog loads; only a reciter known to lack word timings blocks word highlighting.
+  const reciterTimed = reciters.find((r) => r.id === config.reciter)?.hasWordTimings !== false;
   const [translations, setTranslations] = useState<Option[]>([]);
   const [draft, setDraft] = useState<PreviewResult>();
   const [composed, setComposed] = useState<{ key: string; result: PreviewResult }>();
@@ -102,6 +106,11 @@ export function Editor() {
     void api.translations().then(setTranslations).catch(fail);
     return () => events.current?.close();
   }, []);
+
+  useEffect(() => {
+    if (!reciterTimed && needsWordTimings(config.mode)) setConfig({ mode: withoutWordHighlight(config.mode) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reciterTimed, config.mode]);
 
   const textKey = missing.surah ? "" : draftKey(config);
   useEffect(() => {
@@ -308,7 +317,9 @@ export function Editor() {
   const style = (patch: Partial<VideoConfig["style"]>) => setNested("style", { ...config.style, ...patch });
   const audio = (patch: Partial<VideoConfig["audio"]>) => setNested("audio", { ...config.audio, ...patch });
   const timing = (patch: Partial<VideoConfig["timing"]>) => setNested("timing", { ...config.timing, ...patch });
-  const modeHint = canUseMode(config.mode, caps) ? t(`${config.mode}Hint`) : t("connectQul");
+  const modeBlocker = (m: VideoMode) =>
+    !canUseMode(m, caps) ? t("connectQul") : needsWordTimings(m) && !reciterTimed ? t("needsWordTimings") : undefined;
+  const modeHint = modeBlocker(config.mode) ?? t(`${config.mode}Hint`);
 
   return (
     <div className="editor">
@@ -445,15 +456,15 @@ export function Editor() {
               <Section title={t("onScreen")}>
                 <div className="views" role="radiogroup" aria-label={t("mode")}>
                   {MODES.map((m) => {
-                    const ok = canUseMode(m, caps);
+                    const blocked = modeBlocker(m);
                     return (
                       <button
                         key={m}
                         type="button"
                         role="radio"
                         aria-checked={config.mode === m}
-                        disabled={!ok}
-                        title={ok ? t(`${m}Hint`) : t("connectQul")}
+                        disabled={blocked != null}
+                        title={blocked ?? t(`${m}Hint`)}
                         className={config.mode === m ? "on" : ""}
                         onClick={() => setConfig({ mode: m })}
                       >

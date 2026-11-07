@@ -35,8 +35,11 @@ export function classifyEntry(e: CacheEntry): Slot {
   let m: RegExpMatchArray | null;
   if ((m = k.match(/^audio:(.+):(\d+):(\d+)$/))) return { type: "recitation", id: m[1]!, surah: +m[2]!, ayah: +m[3]! };
   if ((m = k.match(/^audio-chapter:(.+):(\d+)$/))) return { type: "recitation", id: m[1]!, surah: +m[2]!, wholeSurah: true };
+  // A run only serves its own ayah range, so it adds bytes to the surah without counting its ayat as offline.
+  if ((m = k.match(/^audio-run:(.+):(\d+):\d+-\d+$/))) return { type: "recitation", id: m[1]!, surah: +m[2]! };
   if ((m = k.match(/^qc:verse-audio:v1:(\d+):(\d+)$/))) return { type: "recitation", id: `qdc-${m[1]}`, surah: +m[2]!, timings: true };
   if ((m = k.match(/^qc:chapter-audio:v1:(\d+):(\d+)$/))) return { type: "recitation", id: `qdcch-${m[1]}`, surah: +m[2]!, timings: true };
+  if ((m = k.match(/^mp3q:timing:v1:(\d+):(\d+)$/))) return { type: "recitation", id: `mp3q-${m[1]}`, surah: +m[2]!, timings: true };
   if ((m = k.match(/^edition:v1:(\d+):(.+)$/))) {
     const type = e.kind === "tafsir" ? "tafsir" : e.kind === "translation" ? "translation" : "text";
     return { type, id: type === "text" ? "quran" : m[2]!, surah: +m[1]! };
@@ -99,10 +102,10 @@ export function summarizeLibrary(
     row.bytes += entry.size;
     if (slot.type !== "recitation") row.have = 1;
     else if (slot.wholeSurah) wholeSurahs.add(`${slot.id}|${slot.surah}`);
-    else {
+    else if (slot.ayah != null) {
       const key = `${slot.id}|${slot.surah}`;
       const seen = ayatSeen.get(key) ?? new Set<number>();
-      seen.add(slot.ayah!);
+      seen.add(slot.ayah);
       ayatSeen.set(key, seen);
     }
   }
@@ -118,7 +121,7 @@ export function summarizeLibrary(
   for (const { slot, entry } of timingSlots) {
     const qcId = parseReciter(slot.id).qcId;
     const owner = [...groups.values()].find(
-      (g) => g.type === "recitation" && (g.id === slot.id || parseReciter(g.id).qcId === qcId) && g.surahs.some((s) => s.surah === slot.surah),
+      (g) => g.type === "recitation" && (g.id === slot.id || (qcId != null && parseReciter(g.id).qcId === qcId)) && g.surahs.some((s) => s.surah === slot.surah),
     );
     const g = owner ?? groupFor("app", "app");
     g.bytes += entry.size;

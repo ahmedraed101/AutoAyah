@@ -7,7 +7,9 @@ import { ensureBrowser, makeCancelSignal, renderFrames, renderMedia, renderStill
 import { buildTimeline, renderFileName, type Job, type VideoConfig } from "@autoayah/core";
 import type { Resolver } from "@autoayah/data";
 import type { CompositionProps } from "@autoayah/templates";
-import { frameKeys } from "@autoayah/templates/frames";
+import { audioClips, frameKeys } from "@autoayah/templates/frames";
+
+const EDGE_FADE_SECONDS = 0.03;
 
 let serveUrlPromise: Promise<string> | null = null;
 
@@ -226,23 +228,26 @@ async function renderDistinct(o: {
     writeFileSync(path.join(work, "frames.txt"), list.join("\n"));
 
     const asset = (u: string) => (u.startsWith("/") ? `${props.assetBaseUrl ?? ""}${u}` : u);
+    const clips: Track[] = audioClips(timeline).map((c) => {
+      const len = Math.min(c.durationInFrames / fps, c.audioSeconds || Infinity);
+      // The server cuts the clip out of the run, so ffmpeg never decodes the audio before it.
+      const src = c.trimBeforeMs > 0 ? `${c.src}?start=${Math.round(c.trimBeforeMs)}&end=${Math.ceil(c.trimBeforeMs + len * 1000 + 50)}` : c.src;
+      return { url: asset(src), at: c.fromFrame / fps, len, volume: config.audio.recitationVolume, fade: true };
+    });
+    const tracks = clips.length > MAX_AUDIO_INPUTS ? await premixBatches(clips, work, o.signal) : clips;
+
     const args = ["-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", path.join(work, "frames.txt")];
     const chains: string[] = [];
     const mix: string[] = [];
-    const stereo = "aformat=sample_rates=48000:channel_layouts=stereo";
-    timeline.slides.forEach((s, i) => {
-      args.push("-i", asset(s.ayah.audioUrl));
-      const startMs = Math.round((s.startFrame / fps) * 1000);
-      chains.push(
-        `[${i + 1}:a]atrim=0:${(s.durationInFrames / fps).toFixed(4)},asetpts=PTS-STARTPTS,${stereo},` +
-          `volume=${config.audio.recitationVolume},adelay=${startMs}:all=1[a${i}]`,
-      );
+    tracks.forEach((t, i) => {
+      args.push("-i", t.url);
+      chains.push(trackChain(i + 1, t, 0, `a${i}`));
       mix.push(`[a${i}]`);
     });
     if (config.audio.ambienceId) {
-      const idx = timeline.slides.length + 1;
+      const idx = tracks.length + 1;
       args.push("-stream_loop", "-1", "-i", asset(`/ambience/${config.audio.ambienceId}.wav`));
-      chains.push(`[${idx}:a]atrim=0:${total.toFixed(4)},asetpts=PTS-STARTPTS,${stereo},volume=${config.audio.ambienceVolume}[amb]`);
+      chains.push(`[${idx}:a]atrim=0:${total.toFixed(4)},asetpts=PTS-STARTPTS,${STEREO},volume=${config.audio.ambienceVolume}[amb]`);
       mix.push("[amb]");
     }
     const fadeIn = Math.max(1, Math.round(config.audio.fadeInSeconds * fps)) / fps;
@@ -273,6 +278,46 @@ async function renderDistinct(o: {
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
+}
+
+/** An audio input placed `at` seconds into the video and `len` seconds long. */
+type Track = { url: string; at: number; len: number; volume: number; fade: boolean };
+
+const STEREO = "aformat=sample_rates=48000:channel_layouts=stereo";
+/** One ffmpeg input per clip; the default macOS open-file limit is 256, so long per-ayah exports are premixed in batches. */
+const MAX_AUDIO_INPUTS = 200;
+const AUDIO_BATCH = 150;
+
+function trackChain(input: number, t: Track, origin: number, label: string) {
+  const edge = Math.min(EDGE_FADE_SECONDS, t.len / 4);
+  // Short fades on each clip's edges so cut points never click.
+  const fades = t.fade ? `afade=t=in:d=${edge.toFixed(4)},afade=t=out:st=${(t.len - edge).toFixed(4)}:d=${edge.toFixed(4)},` : "";
+  return (
+    `[${input}:a]atrim=0:${t.len.toFixed(4)},asetpts=PTS-STARTPTS,${STEREO},${fades}` +
+    `volume=${t.volume},adelay=${Math.round((t.at - origin) * 1000)}:all=1[${label}]`
+  );
+}
+
+/** Mixes consecutive clips into local FLAC files, each covering only its batch's stretch of the video. */
+async function premixBatches(clips: Track[], work: string, signal: AbortSignal): Promise<Track[]> {
+  const out: Track[] = [];
+  for (let b = 0; b < clips.length; b += AUDIO_BATCH) {
+    if (signal.aborted) throw new Error("cancelled");
+    const batch = clips.slice(b, b + AUDIO_BATCH);
+    const at = batch[0]!.at;
+    const len = Math.max(...batch.map((c) => c.at + c.len)) - at;
+    const file = path.join(work, `audio-${b}.flac`);
+    const args = ["-y", "-hide_banner", "-loglevel", "error"];
+    const chains = batch.map((c, i) => {
+      args.push("-i", c.url);
+      return trackChain(i, c, at, `a${i}`);
+    });
+    chains.push(`${batch.map((_, i) => `[a${i}]`).join("")}amix=inputs=${batch.length}:normalize=0:dropout_transition=0,apad,atrim=0:${len.toFixed(4)}[out]`);
+    args.push("-filter_complex", chains.join(";"), "-map", "[out]", "-c:a", "flac", file);
+    await runFfmpeg(args, signal, len, () => undefined);
+    out.push({ url: file, at, len, volume: 1, fade: false });
+  }
+  return out;
 }
 
 function runFfmpeg(args: string[], signal: AbortSignal, totalSeconds: number, onProgress: (p: number) => void) {

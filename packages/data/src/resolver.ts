@@ -24,10 +24,12 @@ import {
   TAJWEED_EDITION,
   type SurahMeta,
 } from "./alquran.js";
-import { bufferDurationSeconds, everyayahUrl, fetchAudioBuffer, listEveryayahReciters, localAudioPath } from "./everyayah.js";
+import { bufferDurationSeconds, everyayahUrl, fetchAudioBuffer, listEveryayahReciters, localAudioPath, localRunPath } from "./everyayah.js";
 import { fetchMushafPage } from "./mushaf.js";
 import { ayahBoxes, fetchAyahInfoDb, fetchMushafImage, pngSize, wordBoxes } from "./mushaf-images.js";
-import { sliceMp3 } from "./mp3.js";
+import { joinMp3Cuts, sliceMp3 } from "./mp3.js";
+import { fetchMp3Span } from "./remote-mp3.js";
+import { fetchMp3qSoar, fetchMp3qTiming, listMp3qReads, mp3qAudioUrl, mp3qSpans, type Mp3qRead } from "./mp3quran.js";
 import {
   contentClient,
   fetchChapterAudio,
@@ -38,6 +40,7 @@ import {
   listTafsirs,
   listTranslations,
   listVerseRecitations,
+  type ChapterAudio,
   type QcRecitation,
   type QcResource,
 } from "./quran-com.js";
@@ -48,12 +51,30 @@ const QURAN_EDITION = "quran-uthmani";
 const AUDIO_CONCURRENCY = 6;
 const CATALOG_TTL_MS = 7 * 24 * 3600_000;
 
-/** Reciter ids: "qdc-<id>" per-ayah recitations, "qdcch-<id>" whole-surah recitations, anything else is an everyayah folder. */
-export function parseReciter(id: string): { kind: "verse" | "chapter"; qcId: number } | { kind: "everyayah"; qcId?: number } {
+/**
+ * Reciter ids: "qdc-<id>" per-ayah recitations, "qdcch-<id>" whole-surah recitations (Quran.com), "mp3q-<id>"
+ * whole-surah mp3quran.net reads, anything else is an everyayah folder.
+ */
+export function parseReciter(
+  id: string,
+): { kind: "verse" | "chapter"; qcId: number } | { kind: "everyayah"; qcId?: number } | { kind: "mp3quran"; readId: number; qcId?: undefined } {
   const m = id.match(/^(qdc|qdcch)-(\d+)$/);
   if (m) return { kind: m[1] === "qdc" ? "verse" : "chapter", qcId: Number(m[2]) };
+  const mq = id.match(/^mp3q-(\d+)$/);
+  if (mq) return { kind: "mp3quran", readId: Number(mq[1]) };
   return { kind: "everyayah", qcId: DEFAULT_RECITERS.find((r) => r.id === id)?.qfRecitationId };
 }
+
+type Recording = { source: "quran.com"; qcId: number } | { source: "mp3quran"; read: Mp3qRead };
+type RunStamps = { audioUrl: string; stamps: Map<number, ChapterStamp>; source: string };
+
+/** Spelling-insensitive name key ("Al-Hussary" ≈ "Al-Husary", "Abdulbasit" ≈ "AbdulBaset"). */
+const nameKey = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z]/g, "")
+    .replace(/[aeiouy]/g, "")
+    .replace(/(.)\1+/g, "$1");
 
 /** Tafsir / translation ids "qc-<id>" come from the Quran.com catalog; others are AlQuran.cloud editions. */
 const qcResourceId = (id: string | null | undefined) => {
@@ -70,6 +91,7 @@ const QC_TAFSIR_NAMES_AR: Record<number, string> = { 14: "تفسير ابن كث
 /** Whole-surah recordings that duplicate a per-ayah recitation or repeat each ayah for children. */
 const SKIP_CHAPTER_RECITER = (r: QcRecitation) => /streaming/i.test(r.name) || /kids/i.test(`${r.name} ${r.style ?? ""}`);
 
+type ChapterStamp = ChapterAudio["timestamps"][number];
 type CachedAyah = { n: number; text: string; page?: number };
 type CachedEdition = { title?: string; ayahs: CachedAyah[] };
 
@@ -190,10 +212,39 @@ export function createResolver(opts: ResolveOptions): Resolver {
 
   const content = contentClient(qf);
 
-  async function catalog<T>(key: string, load: () => Promise<T>): Promise<T> {
-    const entry = await cache.get(key);
-    if (entry && Date.now() - Date.parse(entry.createdAt) > CATALOG_TTL_MS) await cache.remove(key);
-    return cachedJson(cache, key, "other", "quran.com", load);
+  const inflight = new Map<string, Promise<unknown>>();
+  /** Concurrent requests for the same download share it. */
+  function once<T>(key: string, load: () => Promise<T>): Promise<T> {
+    let pending = inflight.get(key) as Promise<T> | undefined;
+    if (!pending) {
+      pending = load().finally(() => inflight.delete(key));
+      inflight.set(key, pending);
+    }
+    return pending;
+  }
+
+  const catalogRetryAt = new Map<string, number>();
+  /** Refreshed weekly; a failed refresh keeps the stale copy and isn't retried for a minute. */
+  function catalog<T>(key: string, load: () => Promise<T>, source = "quran.com"): Promise<T> {
+    return once(`catalog:${key}`, async () => {
+      const entry = await cache.get(key);
+      const stale = !entry || Date.now() - Date.parse(entry.createdAt) > CATALOG_TTL_MS;
+      const fallback = entry ? () => cachedJson<T>(cache, key, "other", source, load) : null;
+      if (!stale) return fallback!();
+      if (Date.now() < (catalogRetryAt.get(key) ?? 0)) {
+        if (fallback) return fallback();
+        throw new Error(`${source} catalog is unavailable`);
+      }
+      try {
+        const value = await load();
+        await cache.writeFile(key, "other", source, Buffer.from(JSON.stringify(value)));
+        return value;
+      } catch (e) {
+        catalogRetryAt.set(key, Date.now() + 60_000);
+        if (fallback) return fallback();
+        throw e;
+      }
+    });
   }
 
   const verseRecitations = () => catalog("qc:recitations:v1", () => listVerseRecitations(content)).catch((): QcRecitation[] => []);
@@ -210,6 +261,85 @@ export function createResolver(opts: ResolveOptions): Resolver {
       fetchChapterAudio(content, reciterId, surah),
     );
 
+  let mp3qDown = false;
+  const mp3qReads = () =>
+    catalog("mp3q:reads:v2", listMp3qReads, "mp3quran").then(
+      (reads) => ((mp3qDown = false), reads),
+      (): Mp3qRead[] => ((mp3qDown = true), []),
+    );
+  const mp3qSoar = (read: Mp3qRead) => catalog(`mp3q:soar:v1:${read.id}`, () => fetchMp3qSoar(read.id), "mp3quran");
+  const mp3qTiming = (readId: number, surah: number) =>
+    cachedJson(cache, `mp3q:timing:v1:${readId}:${surah}`, "word_timings", "mp3quran", () => fetchMp3qTiming(readId, surah));
+
+  /** mp3quran read behind an `mp3q-<id>` reciter; only Hafs reads are in the catalog. */
+  async function mp3qRead(readId: number): Promise<Mp3qRead> {
+    const read = (await mp3qReads()).find((r) => r.id === readId);
+    if (!read && mp3qDown) throw new Error("mp3quran.net is unreachable and its reciter list isn't cached");
+    if (!read) throw new Error(`mp3quran reciter ${readId} is not available (only Hafs 'an 'Asim recordings are offered)`);
+    return read;
+  }
+
+  /** Surah recording that plays this reciter's ayat back to back, when there is one. */
+  async function recordingOf(reciter: string): Promise<Recording | null> {
+    const r = parseReciter(reciter);
+    if (r.kind === "mp3quran") return { source: "mp3quran", read: await mp3qRead(r.readId) };
+    if (r.kind === "chapter") return { source: "quran.com", qcId: r.qcId };
+    if (r.kind !== "verse") return null;
+    // The two catalogs share ids for the same recordings; the surname and style check guards against a reused id.
+    const [verse, chapter] = await Promise.all([verseRecitations(), chapterReciters()]);
+    const v = verse.find((x) => x.id === r.qcId);
+    const c = chapter.find((x) => x.id === r.qcId);
+    const letters = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
+    const surname = c && letters(c.name.split(/\s+/).pop() ?? "");
+    const style = (s?: string | null) => s || "Murattal";
+    return v && c && surname && letters(v.name).includes(surname) && style(v.style) === style(c.style) ? { source: "quran.com", qcId: r.qcId } : null;
+  }
+
+  /**
+   * Where ayat `from`–`to` sit in the surah recording. Quran.com: null unless every one of them is there (the caller
+   * falls back to per-ayah files). mp3quran has no other audio, so a missing surah or ayah is an error.
+   */
+  async function recordingStamps(rec: Recording, surah: number, from: number, to: number): Promise<RunStamps | null> {
+    if (rec.source === "mp3quran") {
+      const { read } = rec;
+      const surahs = read.surahs ?? (await mp3qSoar(read));
+      if (!surahs.includes(surah)) throw new Error(`${read.name} has no recording of surah ${surah}`);
+      const spans = mp3qSpans(await mp3qTiming(read.id, surah), from, to);
+      if (!spans) throw new Error(`${read.name} has no ayah timings for ${surah}:${from}-${to}`);
+      const stamps = new Map<number, ChapterStamp>(
+        [...spans].map(([n, s]) => [n, { verse_key: `${surah}:${n}`, timestamp_from: s.fromMs, timestamp_to: s.toMs }]),
+      );
+      return { audioUrl: mp3qAudioUrl(read, surah), stamps, source: "mp3quran" };
+    }
+    try {
+      const chapter = await chapterAudio(rec.qcId, surah);
+      const stamps = new Map<number, ChapterStamp>();
+      for (const ts of chapter.timestamps) {
+        const [s, n] = ts.verse_key.split(":").map(Number);
+        if (s === surah && n! >= from && n! <= to && ts.timestamp_to > ts.timestamp_from) stamps.set(n!, ts);
+      }
+      return stamps.size === to - from + 1 ? { audioUrl: chapter.audioUrl, stamps, source: "quran.com" } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** [fromMs, toMs) of a surah recording: byte ranges for CBR files, otherwise the whole file downloaded once and cached. */
+  async function recordingSpan(reciter: string, surah: number, run: Pick<RunStamps, "audioUrl" | "source">, fromMs: number, toMs: number) {
+    const fileKey = `audio-chapter:${reciter}:${surah}`;
+    const cached = await cache.readFile(fileKey);
+    if (cached) return sliceMp3(cached, fromMs, toMs);
+    const span = await fetchMp3Span(run.audioUrl, fromMs, toMs).catch(() => null);
+    if (span?.length) return span;
+    const whole = await once(fileKey, async () => {
+      // Whole-surah files reach ~120 MB.
+      const data = await fetchAudioBuffer(run.audioUrl, 15 * 60_000);
+      await cache.writeFile(fileKey, "audio", run.source, data, false, { url: run.audioUrl });
+      return data;
+    });
+    return sliceMp3(whole, fromMs, toMs);
+  }
+
   /** Download (once) the source audio for one ayah, whatever kind of reciter it is. */
   async function downloadAyahAudio(reciter: string, surah: number, ayah: number): Promise<{ data: Buffer; url: string; source: string }> {
     const r = parseReciter(reciter);
@@ -222,16 +352,50 @@ export function createResolver(opts: ResolveOptions): Resolver {
       if (!file) throw new Error(`No audio for ${surah}:${ayah} from this reciter`);
       return { data: await fetchAudioBuffer(file.url), url: file.url, source: "quran.com" };
     }
+    if (r.kind === "mp3quran") {
+      const run = (await recordingStamps({ source: "mp3quran", read: await mp3qRead(r.readId) }, surah, ayah, ayah))!;
+      const ts = run.stamps.get(ayah)!;
+      return { data: await recordingSpan(reciter, surah, run, ts.timestamp_from, ts.timestamp_to), url: run.audioUrl, source: run.source };
+    }
     const chapter = await chapterAudio(r.qcId, surah);
     const ts = chapter.timestamps.find((t) => t.verse_key === `${surah}:${ayah}`);
     if (!ts) throw new Error(`No audio for ${surah}:${ayah} from this reciter`);
-    const fileKey = `audio-chapter:${reciter}:${surah}`;
-    let whole = await cache.readFile(fileKey);
-    if (!whole) {
-      whole = await fetchAudioBuffer(chapter.audioUrl);
-      await cache.writeFile(fileKey, "audio", "quran.com", whole, false, { url: chapter.audioUrl });
+    const run = { audioUrl: chapter.audioUrl, source: "quran.com" };
+    return { data: await recordingSpan(reciter, surah, run, ts.timestamp_from, ts.timestamp_to), url: chapter.audioUrl, source: run.source };
+  }
+
+  /** Offline: the run stitched from per-ayah cuts of the same recording, when they were downloaded and meet exactly. */
+  async function downloadedCuts(reciter: string, surah: number, run: RunStamps, from: number, to: number): Promise<Buffer | null> {
+    const parts: Buffer[] = [];
+    for (let n = from; n <= to; n++) {
+      if (n > from && run.stamps.get(n)!.timestamp_from !== run.stamps.get(n - 1)!.timestamp_to) return null;
+      const key = `audio:${reciter}:${surah}:${n}`;
+      if ((await cache.get(key))?.meta?.url !== run.audioUrl) return null;
+      const data = await cache.readFile(key);
+      if (!data) return null;
+      parts.push(data);
     }
-    return { data: sliceMp3(whole, ts.timestamp_from, ts.timestamp_to), url: chapter.audioUrl, source: "quran.com" };
+    return joinMp3Cuts(parts, Array.from({ length: to - from }, (_, i) => run.stamps.get(from + i)!.timestamp_to));
+  }
+
+  async function getAudioRun(reciter: string, surah: number, from: number, to: number): Promise<{ data: Buffer; seconds: number }> {
+    const key = `audio-run:${reciter}:${surah}:${from}-${to}`;
+    const hit = await cache.readFile(key);
+    if (hit) {
+      const entry = await cache.get(key);
+      return { data: hit, seconds: Number(entry?.meta?.duration) || (await bufferDurationSeconds(hit)) };
+    }
+    return once(key, async () => {
+      const recording = await recordingOf(reciter);
+      const run = recording && (await recordingStamps(recording, surah, from, to));
+      if (!run) throw new Error(`No continuous recording of ${surah}:${from}-${to} from this reciter`);
+      const data = await recordingSpan(reciter, surah, run, run.stamps.get(from)!.timestamp_from, run.stamps.get(to)!.timestamp_to).catch(
+        async (e) => (await downloadedCuts(reciter, surah, run, from, to)) ?? Promise.reject(e),
+      );
+      const seconds = await bufferDurationSeconds(data);
+      await cache.writeFile(key, "audio", run.source, data, false, { duration: seconds, url: run.audioUrl });
+      return { data, seconds };
+    });
   }
 
   async function getAudio(reciter: string, surah: number, ayah: number): Promise<{ data: Buffer; seconds: number }> {
@@ -251,10 +415,14 @@ export function createResolver(opts: ResolveOptions): Resolver {
   const toTimings = (segments: [number, number, number][], offset = 0): WordTiming[] =>
     segments
       .map((s) => s.map(Number) as [number, number, number])
-      .filter(([index]) => index > 0)
+      .filter(([index, start, end]) => index > 0 && Number.isFinite(start) && Number.isFinite(end))
       .map(([index, start, end]) => ({ index, text: "", startMs: start - offset, endMs: end - offset }));
 
-  async function wordTimings(config: Pick<VideoConfig, "surah" | "from" | "to" | "reciter">): Promise<Map<number, WordTiming[]>> {
+  /** `stamps`: the ayat play from the surah recording, so its segments are the ones that match the audio. */
+  async function wordTimings(
+    config: Pick<VideoConfig, "surah" | "from" | "to" | "reciter">,
+    stamps: Map<number, ChapterStamp> | null,
+  ): Promise<Map<number, WordTiming[]>> {
     const out = new Map<number, WordTiming[]>();
     const r = parseReciter(config.reciter);
     if (r.qcId == null) return out;
@@ -263,20 +431,18 @@ export function createResolver(opts: ResolveOptions): Resolver {
       return n >= config.from && n <= config.to ? n : null;
     };
     try {
-      if (r.kind === "chapter") {
-        // Segments are absolute within the surah file; each ayah clip starts at its timestamp_from.
-        for (const ts of (await chapterAudio(r.qcId, config.surah)).timestamps) {
-          const n = inRange(ts.verse_key);
-          if (n != null && ts.segments?.length) out.set(n, toTimings(ts.segments, ts.timestamp_from));
-        }
-      } else {
+      if (r.kind === "chapter") stamps ??= (await recordingStamps({ source: "quran.com", qcId: r.qcId }, config.surah, config.from, config.to))?.stamps ?? null;
+      // Segments are absolute within the surah file; each ayah starts at its timestamp_from.
+      for (const [n, ts] of stamps ?? []) if (ts.segments?.length) out.set(n, toTimings(ts.segments, ts.timestamp_from));
+      // Per-ayah file segments are measured from those files' own cut points, so they only fit per-ayah playback.
+      if (r.kind !== "chapter" && !stamps) {
         for (const f of await verseAudio(r.qcId, config.surah)) {
           const n = inRange(f.verseKey);
           if (n != null && f.segments.length) out.set(n, toTimings(f.segments));
         }
       }
     } catch {
-      /* optional — the template estimates timings instead */
+      /* optional — ayat without timings show no word highlight */
     }
     return out;
   }
@@ -348,9 +514,15 @@ export function createResolver(opts: ResolveOptions): Resolver {
     });
   }
 
+  const mp3qName = (read: Mp3qRead, clash: boolean) => {
+    const tag = clash ? " · mp3quran" : "";
+    return { name: `${read.name}${read.mujawwad ? " (Mujawwad)" : ""}${tag}`, nameAr: `${read.nameAr}${read.mujawwad ? " (مجوّد)" : ""}${tag}` };
+  };
+
   async function getReciters() {
-    const [verse, chapter] = await Promise.all([verseRecitations(), chapterReciters()]);
+    const [verse, chapter, reads] = await Promise.all([verseRecitations(), chapterReciters(), mp3qReads()]);
     const verseNames = new Set(verse.map((r) => `${r.name}|${r.style ?? ""}`.toLowerCase()));
+    const qcKeys = new Set([...verse, ...chapter].map((r) => nameKey(r.name)));
     return [
       ...verse.map((r) => ({
         id: `qdc-${r.id}`,
@@ -369,6 +541,8 @@ export function createResolver(opts: ResolveOptions): Resolver {
           source: "quran.com",
           hasWordTimings: true,
         })),
+      // Continuous Hafs recordings with ayah (not word) timings; tagged only where a Quran.com reciter has the same name.
+      ...reads.map((r) => ({ id: `mp3q-${r.id}`, ...mp3qName(r, qcKeys.has(nameKey(r.name))), source: "mp3quran", hasWordTimings: false })),
       // everyayah folders that are the same recording as a Quran.com recitation stay valid ids but aren't listed twice.
       ...listEveryayahReciters()
         .filter((r) => !verse.some((v) => v.id === parseReciter(r.id).qcId))
@@ -400,9 +574,16 @@ export function createResolver(opts: ResolveOptions): Resolver {
   }
 
   async function libraryNames(): Promise<LibraryNames> {
-    const [verse, chapter, tafsirs, translations] = await Promise.all([verseRecitations(), chapterReciters(), qcTafsirs(), qcTranslations()]);
+    const [verse, chapter, tafsirs, translations, reads] = await Promise.all([
+      verseRecitations(),
+      chapterReciters(),
+      qcTafsirs(),
+      qcTranslations(),
+      mp3qReads(),
+    ]);
     const named = (r: QcRecitation) => ({ name: `${r.name}${styleLabel(r.style)}`, nameAr: r.nameAr ? `${r.nameAr}${styleLabel(r.style)}` : undefined });
     const reciters: LibraryNames["reciters"] = {};
+    for (const r of reads) reciters[`mp3q-${r.id}`] = mp3qName(r, false);
     for (const r of chapter) reciters[`qdcch-${r.id}`] = named(r);
     for (const r of verse) reciters[`qdc-${r.id}`] = named(r);
     for (const r of DEFAULT_RECITERS) {
@@ -431,6 +612,7 @@ export function createResolver(opts: ResolveOptions): Resolver {
     getTranslations,
     capabilities,
     getAudio,
+    getAudioRun,
     getMushafImage,
     libraryNames,
     async prefetchSurahText(surah) {
@@ -438,9 +620,11 @@ export function createResolver(opts: ResolveOptions): Resolver {
     },
     async prefetchRecitationIndex(reciter, surah) {
       const r = parseReciter(reciter);
+      if (r.kind === "mp3quran") return void (await recordingStamps({ source: "mp3quran", read: await mp3qRead(r.readId) }, surah, 1, 1));
       if (r.qcId == null) return;
-      if (r.kind === "chapter") await chapterAudio(r.qcId, surah);
-      else await verseAudio(r.qcId, surah);
+      if (r.kind === "chapter") return void (await chapterAudio(r.qcId, surah));
+      await verseAudio(r.qcId, surah);
+      if ((await recordingOf(reciter)) != null) await chapterAudio(r.qcId, surah).catch(() => undefined);
     },
     async prefetchEdition(kind, id, surah) {
       const qcId = qcResourceId(id);
@@ -487,9 +671,15 @@ export function createResolver(opts: ResolveOptions): Resolver {
       const fromRecord = (rec: Record<number, string> | null) =>
         new Map(Object.entries(rec ?? {}).map(([n, text]) => [Number(n), { n: Number(n), text }]));
 
+      const recording = config.draft ? null : await recordingOf(config.reciter);
+
       // One surah at a time keeps audio downloads bounded on long (juz-sized) clips.
       const parts: { editions: Map<string, CachedEdition>; ayat: ResolvedAyah[] }[] = [];
       for (const seg of segments) {
+        // Ayat from the continuous surah recording play as one stretch of it; no per-ayah file is needed.
+        const stamps = recording == null ? null : (await recordingStamps(recording, seg.surah, seg.from, seg.to))?.stamps ?? null;
+        const runUrl = localRunPath(config.reciter, seg.surah, seg.from, seg.to);
+        const runStart = stamps?.get(seg.from)?.timestamp_from ?? 0;
         const [editions, qcTafsirMap, qcTranslationMap] = await Promise.all([
           getEditions(seg.surah, ids),
           qcTafsir != null ? qcTafsirText(qcTafsir, seg.surah) : null,
@@ -503,13 +693,18 @@ export function createResolver(opts: ResolveOptions): Resolver {
         const tafsir = qcTafsir != null ? fromRecord(qcTafsirMap) : byNumber(config.tafsir);
         const translation = qcTranslation != null ? fromRecord(qcTranslationMap) : byNumber(config.translation);
         const timings = wantTimings && !config.draft
-          ? await wordTimings({ ...seg, reciter: config.reciter })
+          ? await wordTimings({ ...seg, reciter: config.reciter }, stamps)
           : new Map<number, WordTiming[]>();
 
         const ayat: ResolvedAyah[] = await mapLimit(quran, AUDIO_CONCURRENCY, async (a) => {
           const split = splitBasmala(seg.surah, a.n, a.text);
           const words = splitWords(split.text);
-          const { seconds } = config.draft ? { seconds: draftSeconds(words.length) } : await getAudio(config.reciter, seg.surah, a.n);
+          const ts = stamps?.get(a.n);
+          const { seconds } = config.draft
+            ? { seconds: draftSeconds(words.length) }
+            : ts
+              ? { seconds: (ts.timestamp_to - ts.timestamp_from) / 1000 }
+              : await getAudio(config.reciter, seg.surah, a.n);
           return {
             number: a.n,
             surah: seg.surah,
@@ -521,6 +716,7 @@ export function createResolver(opts: ResolveOptions): Resolver {
             translation: translation.get(a.n)?.text,
             audioUrl: config.draft ? "" : localAudioPath(config.reciter, seg.surah, a.n),
             audioSeconds: seconds,
+            run: ts ? { url: runUrl, offsetMs: ts.timestamp_from - runStart } : undefined,
             wordTimings: timings.get(a.n),
             page: a.page,
           };
@@ -528,6 +724,9 @@ export function createResolver(opts: ResolveOptions): Resolver {
         parts.push({ editions, ayat });
       }
       const ayat = parts.flatMap((p) => p.ayat);
+      if (wantTimings && !config.draft && !ayat.some((a) => a.wordTimings?.length)) {
+        throw new Error("This reciter has no word timings, so word highlighting is unavailable. Pick a reciter with word timings or a view without highlighting.");
+      }
       const basmala = ayat[0]?.basmala;
 
       const titleOf = (id: string | null, catalog: { id: string; name: string }[]) =>
@@ -570,6 +769,8 @@ export function createResolver(opts: ResolveOptions): Resolver {
         ayat,
         mushafPages,
         draft: config.draft || undefined,
+        // Cuts of one surah recording whose timestamps meet already hold the reciter's natural pause.
+        audioGapSeconds: !config.draft && (parseReciter(config.reciter).kind === "chapter" || ayat.every((a) => a.run)) ? 0 : undefined,
       };
     },
   };

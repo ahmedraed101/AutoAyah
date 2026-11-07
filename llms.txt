@@ -44,11 +44,16 @@ When APP_PASSWORD is set, send the session token as `Authorization: Bearer <toke
 }
 ```
 
+Reciter ids (list them with GET /api/reciters): `qdc-<id>` Quran.com recitations (word timings), `qdcch-<id>`
+Quran.com whole-surah recordings, `mp3q-<id>` mp3quran.net Hafs recordings (ayah timings only, so `wordHighlight` and
+`mushafWords` are rejected), other ids are everyayah folders. Reciters with a whole-surah recording play consecutive ayat as one
+uninterrupted stretch of it.
+
 A clip may cross surahs: set `toSurah` (and `to` is then an ayah of that surah). For Juz 30 send
 `"surah": 78, "from": 1, "toSurah": 114, "to": 6, "range": { "kind": "juz", "n": 30 }` — take the
 refs from /api/divisions. `range` is only a label (kinds: surah, juz, hizb, rub, page, manzil).
 
-`mushafPage` shows the scanned printed Madani page (quran.app public images + ayah coordinates), with a rebuilt 15-line text page as fallback. `mushafWords` is the same scanned page with each recited word boxed on the scan. `wordHighlight` and `mushafWords` use QF word timings when connected, otherwise estimated timing.
+`mushafPage` shows the scanned printed Madani page (quran.app public images + ayah coordinates), with a rebuilt 15-line text page as fallback. `mushafWords` is the same scanned page with each recited word boxed on the scan. `wordHighlight` and `mushafWords` need a reciter with word timings (`hasWordTimings` in /api/reciters); there is no estimated fallback.
 
 ## CLI
 

@@ -68,6 +68,8 @@ export type Resolver = {
   capabilities(): Promise<Capabilities>;
   /** Recitation audio from the local cache, downloading it once if needed. */
   getAudio(reciter: string, surah: number, ayah: number): Promise<{ data: Buffer; seconds: number }>;
+  /** Ayat `from`–`to` as one uninterrupted cut of the reciter's surah recording (see `ResolvedAyah.run`). */
+  getAudioRun(reciter: string, surah: number, from: number, to: number): Promise<{ data: Buffer; seconds: number }>;
   /** Scanned Mushaf page from the local cache, downloading it once if needed. */
   getMushafImage(page: number): Promise<{ data: Buffer; width: number; height: number }>;
   importQulFile(filename: string, data: Buffer, kind: CacheKind): Promise<CacheEntry>;

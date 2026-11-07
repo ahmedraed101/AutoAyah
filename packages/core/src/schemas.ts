@@ -204,6 +204,8 @@ export const ResolvedAyahSchema = z.object({
   translation: z.string().optional(),
   audioUrl: z.string(),
   audioSeconds: z.number(),
+  /** Played from one continuous cut of the surah recording (`url`), starting `offsetMs` into it. */
+  run: z.object({ url: z.string(), offsetMs: z.number().min(0) }).optional(),
   wordTimings: z.array(WordTimingSchema).optional(),
   page: z.number().int().optional(),
   lineStart: z.number().int().optional(),
@@ -256,6 +258,8 @@ export const ResolvedClipSchema = z.object({
   mushafPages: z.array(MushafPageSchema).optional(),
   /** Text-only clip: no audio or word timings, ayah lengths are estimates. */
   draft: z.boolean().optional(),
+  /** Silence added after each ayah; 0 when the ayat are back-to-back cuts of one continuous recording. */
+  audioGapSeconds: z.number().min(0).optional(),
 });
 
 export type ResolvedClip = z.infer<typeof ResolvedClipSchema>;

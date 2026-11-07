@@ -23,7 +23,7 @@ pnpm dev
 
 ## Features
 
-- Modes: ayah, ayah + tafsir, Mushaf page (the scanned printed Madani page, with the current ayah highlighted on the scan), word highlight (exact timings with QF, estimated otherwise)
+- Modes: ayah, ayah + tafsir, Mushaf page (the scanned printed Madani page, with the current ayah highlighted on the scan), word highlight (real word timings only; unavailable for reciters without them)
 - Aspects: 9:16, 16:9, 1:1, 4:5
 - Timing: continuous or reading pause (fast/slow/very slow) + per-ayah overrides
 - Mushaf-style design: ornamental surah banner, tajweed-colored Uthmani text, ayah medallion, tafsir card (light by default, dark theme available)

@@ -27,6 +27,13 @@ export function modeRequires(mode: string): (keyof Capabilities)[] {
   return [];
 }
 
+/** Modes that highlight words as they are recited; they need real word timings from the reciter. */
+export const needsWordTimings = (mode: string) => mode === "wordHighlight" || mode === "mushafWords";
+
+/** The same view without word highlighting, for reciters that have no word timings. */
+export const withoutWordHighlight = <M extends string>(mode: M) =>
+  (mode === "mushafWords" ? "mushafPage" : mode === "wordHighlight" ? "ayah" : mode) as M;
+
 export function canUseMode(mode: string, caps: Capabilities): boolean {
   return modeRequires(mode).every((k) => caps[k]);
 }

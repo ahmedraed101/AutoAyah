@@ -15,6 +15,7 @@ import {
   entryMatches,
   evictLru,
   pinningCache,
+  sliceMp3,
   summarizeLibrary,
   testQfConnection,
 } from "@autoayah/data";
@@ -374,14 +375,23 @@ app.post(
   }),
 );
 
-// Recitation audio, served from the local cache (downloaded once from everyayah).
+// Recitation audio, served from the local cache (downloaded once). SSSAAA.mp3 is one ayah; SSSAAA-AAA.mp3 is a
+// continuous cut of the surah recording, optionally narrowed to ?start=&end= ms within it (used by the ffmpeg mix).
 app.get(
   "/media/audio/:reciter/:file",
   handle(async (req, res) => {
     const reciter = String(req.params.reciter);
-    const m = String(req.params.file).match(/^(\d{3})(\d{3})\.mp3$/);
+    const m = String(req.params.file).match(/^(\d{3})(\d{3})(?:-(\d{3}))?\.mp3$/);
     if (!/^[\w.-]+$/.test(reciter) || !m) return notFound(res);
-    const { data } = await resolver().getAudio(reciter, Number(m[1]), Number(m[2]));
+    const [surah, from, to] = [Number(m[1]), Number(m[2]), m[3] ? Number(m[3]) : null];
+    if (surah < 1 || surah > 114 || from < 1 || (to != null && to < from)) return notFound(res);
+    let data: Buffer;
+    if (to == null) data = (await resolver().getAudio(reciter, surah, from)).data;
+    else {
+      data = (await resolver().getAudioRun(reciter, surah, from, to)).data;
+      const [start, end] = [req.query.start, req.query.end].map((v) => (typeof v === "string" && /^\d{1,9}$/.test(v) ? Number(v) : null));
+      if (start != null || end != null) data = sliceMp3(data, start ?? 0, end ?? Infinity);
+    }
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
     sendRanged(req, res, data);
