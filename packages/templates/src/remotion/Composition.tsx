@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { facingPage, type Slide } from "@autoayah/core";
 import type { CompositionProps } from "../types";
 import { BackgroundLayer } from "../Background";
-import { AyahSlide, AyahTafsirSlide, MushafPageSlide, WordHighlightSlide, type SlideProps } from "../slides";
+import { AyahTafsirSlide, MushafPageSlide, type SlideProps } from "../slides";
 import { ensureArabicFonts } from "../fonts";
 import { audioClips, layoutSpans, pageOf, slideStateAt, type LayoutSpan } from "./frames";
 
@@ -175,15 +175,7 @@ function SpanSlides({ layout, backgrounds, basmala, surahNames, fps, ...rest }: 
     tafsirOpacity: state.tafsirOpacity,
   };
   const mode = layout.mode;
-  const body =
-    mode === "ayahTafsir" ? (
-      <AyahTafsirSlide {...props} />
-    ) : mode === "mushafPage" || mode === "mushafWords" ? (
-      <MushafPageSlide {...props} />
-    ) : mode === "wordHighlight" ? (
-      <WordHighlightSlide {...props} />
-    ) : (
-      <AyahSlide {...props} />
-    );
+  // Every ayah view shows the tafsir card when a tafsir is selected.
+  const body = mode === "mushafPage" || mode === "mushafWords" ? <MushafPageSlide {...props} /> : <AyahTafsirSlide {...props} />;
   return <AbsoluteFill style={{ opacity: state.enter }}>{body}</AbsoluteFill>;
 }

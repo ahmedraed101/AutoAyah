@@ -12,6 +12,7 @@ import {
   needsWordTimings,
   projectName,
   spansSurahs,
+  withWordHighlight,
   withoutWordHighlight,
   type Job,
   type VideoConfig,
@@ -31,7 +32,7 @@ import { groupBy, languageName } from "../catalog";
 type Option = { id: string; name: string; nameAr?: string; language?: string; hasWordTimings?: boolean };
 
 const TABS: Panel[] = ["ayat", "recitation", "look", "background"];
-const MODES: VideoMode[] = ["mushafPage", "mushafWords", "ayah", "ayahTafsir", "wordHighlight"];
+const VIEWS: VideoMode[] = ["mushafPage", "ayah"];
 const EXPORTS: { value: VideoConfig["export"]; label: string }[] = [
   { value: "mp4", label: "MP4" },
   { value: "webm", label: "WebM" },
@@ -64,8 +65,7 @@ export function Editor() {
   const divisionTitle = useDivisionTitle();
   const [reciters, setReciters] = useState<Option[]>([]);
   const [tafsirs, setTafsirs] = useState<Option[]>([]);
-  // Unknown until the catalog loads; only a reciter known to lack word timings blocks word highlighting.
-  const reciterTimed = reciters.find((r) => r.id === config.reciter)?.hasWordTimings !== false;
+  const reciterTimed = !missing.reciter && reciters.find((r) => r.id === config.reciter)?.hasWordTimings === true;
   const [translations, setTranslations] = useState<Option[]>([]);
   const [draft, setDraft] = useState<PreviewResult>();
   const [composed, setComposed] = useState<{ key: string; result: PreviewResult }>();
@@ -108,9 +108,10 @@ export function Editor() {
   }, []);
 
   useEffect(() => {
-    if (!reciterTimed && needsWordTimings(config.mode)) setConfig({ mode: withoutWordHighlight(config.mode) });
+    // Wait for the reciter catalog so a saved project's highlighting isn't dropped while it loads.
+    if (reciters.length && !reciterTimed && needsWordTimings(config.mode)) setConfig({ mode: withoutWordHighlight(config.mode) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reciterTimed, config.mode]);
+  }, [reciters.length, reciterTimed, config.mode]);
 
   const textKey = missing.surah ? "" : draftKey(config);
   useEffect(() => {
@@ -346,9 +347,21 @@ export function Editor() {
   const style = (patch: Partial<VideoConfig["style"]>) => setNested("style", { ...config.style, ...patch });
   const audio = (patch: Partial<VideoConfig["audio"]>) => setNested("audio", { ...config.audio, ...patch });
   const timing = (patch: Partial<VideoConfig["timing"]>) => setNested("timing", { ...config.timing, ...patch });
-  const modeBlocker = (m: VideoMode) =>
-    !canUseMode(m, caps) ? t("connectQul") : needsWordTimings(m) && !reciterTimed ? t("needsWordTimings") : undefined;
-  const modeHint = modeBlocker(config.mode) ?? t(`${config.mode}Hint`);
+  const view: VideoMode = isMushafMode(config.mode) ? "mushafPage" : "ayah";
+  const highlighting = needsWordTimings(config.mode);
+  const highlightMode = withWordHighlight(view);
+  const highlightBlocker = !canUseMode(highlightMode, caps)
+    ? t("connectQul")
+    : missing.reciter
+      ? t("pickTimedReciter")
+      : !reciterTimed
+        ? t("needsWordTimings")
+        : undefined;
+  const pickView = (v: VideoMode) => {
+    const lit = withWordHighlight(v);
+    setConfig({ mode: highlighting && canUseMode(lit, caps) ? lit : v });
+  };
+  const viewBlocker = !canUseMode(view, caps) ? t("connectQul") : undefined;
 
   return (
     <div className="editor">
@@ -484,25 +497,35 @@ export function Editor() {
               <RangePicker />
               <Section title={t("onScreen")}>
                 <div className="views" role="radiogroup" aria-label={t("mode")}>
-                  {MODES.map((m) => {
-                    const blocked = modeBlocker(m);
+                  {VIEWS.map((m) => {
+                    const blocked = canUseMode(m, caps) ? undefined : t("connectQul");
                     return (
                       <button
                         key={m}
                         type="button"
                         role="radio"
-                        aria-checked={config.mode === m}
+                        aria-checked={view === m}
                         disabled={blocked != null}
                         title={blocked ?? t(`${m}Hint`)}
-                        className={config.mode === m ? "on" : ""}
-                        onClick={() => setConfig({ mode: m })}
+                        className={view === m ? "on" : ""}
+                        onClick={() => pickView(m)}
                       >
                         {t(m)}
                       </button>
                     );
                   })}
                 </div>
-                <p className="field-hint">{modeHint}</p>
+                <p className="field-hint">{viewBlocker ?? t(`${view}Hint`)}</p>
+                <div className="switches">
+                  <Switch
+                    label={t("wordHighlight")}
+                    checked={highlighting}
+                    disabled={!highlighting && highlightBlocker != null}
+                    title={highlightBlocker}
+                    onChange={(on) => setConfig({ mode: on ? highlightMode : view })}
+                  />
+                </div>
+                {highlightBlocker ? <p className="field-hint">{highlightBlocker}</p> : null}
                 <Field label={t("tafsir")}>
                   <Select value={config.tafsir ?? ""} onChange={(e) => setConfig({ tafsir: e.target.value || null })}>
                     <option value="">{t("none")}</option>
@@ -757,6 +780,42 @@ export function Editor() {
 
           {panel === "background" && (
             <div className="fields">
+              {selectedBg?.media?.attribution ? <p className="field-hint">{selectedBg.media.attribution}</p> : null}
+              <div className="btn-row">
+                <label className="btn btn-quiet">
+                  <Icon name="upload" size={18} />
+                  {t("upload")}
+                  <input
+                    type="file"
+                    accept="image/*,video/*"
+                    hidden
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (f) void onUpload(f).catch((err: Error) => setError(err.message));
+                    }}
+                  />
+                </label>
+                <button type="button" className={`btn btn-quiet${!selectedBg ? " is-on" : ""}`} onClick={() => setNested("backgrounds", [])}>
+                  {t("solidColor")}
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-quiet${selectedBg?.type === "gradient" ? " is-on" : ""}`}
+                  onClick={() =>
+                    setNested("backgrounds", [
+                      { type: "gradient", fromAyah: config.from, toAyah: config.to, gradient: [config.style.cardColor, "#ffffff"] },
+                    ])
+                  }
+                >
+                  {t("gradient")}
+                </button>
+              </div>
+              {selectedBg?.type === "image" || selectedBg?.type === "video" ? (
+                <div className="switches">
+                  <Switch label={t("mediaPanel")} checked={config.style.mediaPanel} onChange={(mediaPanel) => style({ mediaPanel })} />
+                </div>
+              ) : null}
               <Segmented
                 value={mediaKind}
                 onChange={setMediaKind}
@@ -802,42 +861,6 @@ export function Editor() {
                   {searching ? t("searching") : t("loadMore")}
                 </button>
               )}
-              {selectedBg?.media?.attribution ? <p className="field-hint">{selectedBg.media.attribution}</p> : null}
-              <div className="btn-row">
-                <label className="btn btn-quiet">
-                  <Icon name="upload" size={18} />
-                  {t("upload")}
-                  <input
-                    type="file"
-                    accept="image/*,video/*"
-                    hidden
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      e.target.value = "";
-                      if (f) void onUpload(f).catch((err: Error) => setError(err.message));
-                    }}
-                  />
-                </label>
-                <button type="button" className={`btn btn-quiet${!selectedBg ? " is-on" : ""}`} onClick={() => setNested("backgrounds", [])}>
-                  {t("solidColor")}
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-quiet${selectedBg?.type === "gradient" ? " is-on" : ""}`}
-                  onClick={() =>
-                    setNested("backgrounds", [
-                      { type: "gradient", fromAyah: config.from, toAyah: config.to, gradient: [config.style.cardColor, "#ffffff"] },
-                    ])
-                  }
-                >
-                  {t("gradient")}
-                </button>
-              </div>
-              {selectedBg?.type === "image" || selectedBg?.type === "video" ? (
-                <div className="switches">
-                  <Switch label={t("mediaPanel")} checked={config.style.mediaPanel} onChange={(mediaPanel) => style({ mediaPanel })} />
-                </div>
-              ) : null}
             </div>
           )}
         </div>

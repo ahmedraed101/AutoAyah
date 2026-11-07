@@ -372,8 +372,8 @@ function AyahPage({ props, p, width, height, base }: { props: SlideProps; p: Pal
   const room = height - headerSize * 1.9 - frame * 2 - headerSize * 2 - transHeight;
   // On short pages the running header already names the surah; keep at least two lines for the ayah.
   const bannerHeight = bannerWidth * 0.12 + headerSize;
-  const opening = (Boolean(basmala) || slide.ayah.number === 1) && room - bannerHeight >= base * 4;
-  const bodyHeight = room - (opening ? bannerHeight : 0);
+  const banner = room - bannerHeight >= base * 4;
+  const bodyHeight = room - (banner ? bannerHeight : 0);
   // The basmala line scales with the ayah, so size once with it at full size, then again at the fitted size.
   const fit = (basmalaSize: number) =>
     fitFontSize(slide.ayah.text.length, inner, bodyHeight - (basmala ? basmalaSize * 1.44 + headerSize : 0), base, 2, QURAN_CHAR_EM);
@@ -407,7 +407,7 @@ function AyahPage({ props, p, width, height, base }: { props: SlideProps; p: Pal
           overflow: "hidden",
         }}
       >
-        {opening ? <PageBanner name={surahName} width={bannerWidth} p={p} ink={paper.ink} paper={paper.bg} /> : null}
+        {banner ? <PageBanner name={surahName} width={bannerWidth} p={p} ink={paper.ink} paper={paper.bg} /> : null}
         {basmala ? (
           <div style={{ fontFamily: QURAN_FONT, fontSize: size * 0.8, color: paper.ink, textAlign: "center", lineHeight: 1.8 }}>{basmala}</div>
         ) : null}
@@ -447,12 +447,6 @@ function AyahPage({ props, p, width, height, base }: { props: SlideProps; p: Pal
   );
 }
 
-export function AyahSlide(props: SlideProps) {
-  return <AyahTafsirSlide {...props} withTafsir={false} />;
-}
-
-export const WordHighlightSlide = AyahSlide;
-
 const clamp = (min: number, max: number, v: number) => Math.min(max, Math.max(min, v));
 
 /** Share of the canvas the ayah takes next to tafsir: a larger font gives the ayah more room. */
@@ -461,11 +455,11 @@ const ayahShareFor = (style: StyleConfig, base: number) => clamp(base - 0.15, ba
 /** Square and wider canvases put tafsir beside the ayah; stacked, both get too short to read. */
 const sideBySide = (l: Layout, width: number, height: number, hasTafsir: boolean) => l.landscape || (hasTafsir && width >= height);
 
-export function AyahTafsirSlide({ withTafsir = true, ...props }: SlideProps & { withTafsir?: boolean }) {
+export function AyahTafsirSlide(props: SlideProps) {
   const { style, width, height, overMedia, slide } = props;
   const p = palette(style);
   const l = layoutFor(width, height, overMedia);
-  const hasTafsir = withTafsir && Boolean(slide.tafsirPages.length || slide.ayah.tafsir);
+  const hasTafsir = Boolean(slide.tafsirPages.length || slide.ayah.tafsir);
   // The page carries its own header, so the banner's share of the height goes to the page.
   const available = budget(l, height, style.showWatermark) + l.bannerHeight + l.gap;
   const base = style.fontSize * l.u * (hasTafsir ? 1 : 1.25);

@@ -998,6 +998,15 @@ input[type="number"] {
   inset-inline-start: 21px;
 }
 
+.switch-row:has(.switch:disabled) {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.switch:disabled {
+  cursor: not-allowed;
+}
+
 .slider-head {
   justify-content: space-between;
 }

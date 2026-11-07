@@ -90,7 +90,7 @@ export function layoutSpans(props: Pick<CompositionProps, "timeline" | "config" 
   const spans = pageSpans(props.timeline.slides, mushaf ? groupOf : null);
   return spans.map((span, i) => {
     const layout: LayoutSpan = { span, spread, pages, mode: props.config.mode, first: i === 0, last: i === spans.length - 1 };
-    if (mushaf && !pageOf(layout, span.slides[0]!.slide.ayah.page)) layout.mode = "ayahTafsir";
+    if (mushaf && !pageOf(layout, span.slides[0]!.slide.ayah.page)) layout.mode = props.config.mode === "mushafWords" ? "wordHighlight" : "ayah";
     return layout;
   });
 }

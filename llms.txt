@@ -56,6 +56,8 @@ A clip may cross surahs: set `toSurah` (and `to` is then an ayah of that surah).
 `"surah": 78, "from": 1, "toSurah": 114, "to": 6, "range": { "kind": "juz", "n": 30 }` — take the
 refs from /api/divisions. `range` is only a label (kinds: surah, juz, hizb, rub, page, manzil).
 
+There are two views: a single ayah (`ayah`, or `wordHighlight` to light words up) and the Mushaf page (`mushafPage`, or `mushafWords`). Every view adds a tafsir card when `tafsir` is set and none when it is null; `ayahTafsir` is kept as an alias of `ayah`.
+
 `mushafPage` shows the scanned printed Madani page (quran.app public images + ayah coordinates), with a rebuilt 15-line text page as fallback. `mushafWords` is the same scanned page with each recited word boxed on the scan. `wordHighlight` and `mushafWords` need a reciter with word timings (`hasWordTimings` in /api/reciters); there is no estimated fallback.
 
 ## CLI

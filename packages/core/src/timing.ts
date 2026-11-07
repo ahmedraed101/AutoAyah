@@ -61,11 +61,11 @@ function readingSeconds(tafsir: string | undefined, speed: keyof typeof READING_
 }
 
 function ayahDuration(ayah: ResolvedAyah, config: VideoConfig): number {
-  const { timing, mode } = config;
+  const { timing } = config;
   const override = holdOverride(timing, ayah.surah ?? config.surah, ayah.number, config.surah);
   if (override != null) return Math.max(ayah.audioSeconds, override);
 
-  if (timing.mode === "continuous" || mode === "ayah" || mode === "wordHighlight") {
+  if (timing.mode === "continuous") {
     return ayah.audioSeconds;
   }
 
@@ -97,12 +97,9 @@ export function buildTimeline(config: VideoConfig, clip: ResolvedClip): Timeline
     seconds += Math.max(0.5, ayahDuration(ayah, config) + (ayah.run ? 0 : gap));
     const durationInFrames = Math.max(1, Math.round(seconds * FPS) - frame);
     const durationInSeconds = durationInFrames / FPS;
-    const tafsirPages =
-      config.mode === "ayahTafsir"
-        ? paginateTafsir(ayah.tafsir ?? "", TAFSIR_PAGE_CHARS[config.aspectRatio as AspectRatio] ?? 240)
-        : isMushafMode(config.mode)
-          ? paginateTafsir(ayah.tafsir ?? "", MUSHAF_TAFSIR_PAGE_CHARS)
-          : [];
+    const tafsirPages = isMushafMode(config.mode)
+      ? paginateTafsir(ayah.tafsir ?? "", MUSHAF_TAFSIR_PAGE_CHARS)
+      : paginateTafsir(ayah.tafsir ?? "", TAFSIR_PAGE_CHARS[config.aspectRatio as AspectRatio] ?? 240);
 
     // Background segments are numbered within the first surah; later surahs keep the last matching one.
     const inFirstSurah = (ayah.surah ?? config.surah) === config.surah;

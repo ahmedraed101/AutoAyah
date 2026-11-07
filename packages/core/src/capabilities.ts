@@ -1,3 +1,5 @@
+import { isMushafMode } from "./schemas.js";
+
 export type Capabilities = {
   wordTimings: boolean;
   mushafLayout: boolean;
@@ -33,6 +35,9 @@ export const needsWordTimings = (mode: string) => mode === "wordHighlight" || mo
 /** The same view without word highlighting, for reciters that have no word timings. */
 export const withoutWordHighlight = <M extends string>(mode: M) =>
   (mode === "mushafWords" ? "mushafPage" : mode === "wordHighlight" ? "ayah" : mode) as M;
+
+/** The word-highlighting variant of a view. `ayahTafsir` is the ayah view; tafsir shows whenever one is selected. */
+export const withWordHighlight = (mode: string) => (isMushafMode(mode) ? "mushafWords" : "wordHighlight");
 
 export function canUseMode(mode: string, caps: Capabilities): boolean {
   return modeRequires(mode).every((k) => caps[k]);
