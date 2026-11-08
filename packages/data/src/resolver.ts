@@ -492,18 +492,22 @@ export function createResolver(opts: ResolveOptions): Resolver {
     }
   }
 
-  let ayahInfoPath: Promise<string> | null = null;
-  function getAyahInfoPath(): Promise<string> {
-    ayahInfoPath ??= (async () => {
-      const key = "mushaf:ayahinfo:1024";
-      const existing = await cache.get(key);
-      if (existing && (await cache.readFile(key))) return existing.path;
-      return (await cache.writeFile(key, "mushaf_layout", "quran.app", await fetchAyahInfoDb(), true)).path;
-    })().catch((e) => {
-      ayahInfoPath = null;
-      throw e;
-    });
-    return ayahInfoPath;
+  const ayahInfoPaths = new Map<number, Promise<string>>();
+  function getAyahInfoPath(width: number = MUSHAF_IMAGE_WIDTH): Promise<string> {
+    let pending = ayahInfoPaths.get(width);
+    if (!pending) {
+      pending = (async () => {
+        const key = `mushaf:ayahinfo:${width}`;
+        const existing = await cache.get(key);
+        if (existing && (await cache.readFile(key))) return existing.path;
+        return (await cache.writeFile(key, "mushaf_layout", "quran.app", await fetchAyahInfoDb(width), true)).path;
+      })().catch((e) => {
+        ayahInfoPaths.delete(width);
+        throw e;
+      });
+      ayahInfoPaths.set(width, pending);
+    }
+    return pending;
   }
 
   async function mushafLayout(page: number) {
@@ -512,16 +516,31 @@ export function createResolver(opts: ResolveOptions): Resolver {
     return cachedJson<MushafLine[]>(cache, `mushaf:v2:${page}`, "mushaf_layout", "quran.com", () => fetchMushafPage(page, ayahCount));
   }
 
-  async function pageScan(page: number, lines: MushafLine[]) {
+  /** HD pages come with boxes from the 1920 database; if either is missing, the 1024 scan is used. */
+  async function pageScan(page: number, lines: MushafLine[], hd = false) {
+    const wordCounts: Record<string, number> = {};
+    for (const line of lines) {
+      if (line.kind !== "ayah") continue;
+      for (const w of line.words) if (!w.ayahEnd) wordCounts[w.verseKey] = (wordCounts[w.verseKey] ?? 0) + 1;
+    }
+    if (hd) {
+      try {
+        const [{ width, height }, dbPath] = await Promise.all([getMushafImage(page, true), getAyahInfoPath(MUSHAF_HD_WIDTH)]);
+        if (width === MUSHAF_HD_WIDTH) {
+          return {
+            image: { url: `/media/mushaf/hd/${page}.png`, width, height },
+            boxes: ayahBoxes(dbPath, page),
+            words: wordBoxes(dbPath, page, wordCounts, width),
+          };
+        }
+      } catch (e) {
+        console.warn(`[mushaf] HD page ${page} unavailable, using 1024:`, (e as Error).message);
+      }
+    }
     try {
       const [{ width, height }, dbPath] = await Promise.all([getMushafImage(page), getAyahInfoPath()]);
-      const wordCounts: Record<string, number> = {};
-      for (const line of lines) {
-        if (line.kind !== "ayah") continue;
-        for (const w of line.words) if (!w.ayahEnd) wordCounts[w.verseKey] = (wordCounts[w.verseKey] ?? 0) + 1;
-      }
       return {
-        image: { url: `/media/mushaf/${page}.png`, hdUrl: `/media/mushaf/hd/${page}.png`, width, height },
+        image: { url: `/media/mushaf/${page}.png`, width, height },
         boxes: ayahBoxes(dbPath, page),
         words: wordBoxes(dbPath, page, wordCounts),
       };
@@ -784,7 +803,7 @@ export function createResolver(opts: ResolveOptions): Resolver {
               if (line.kind !== "ayah") surahNames[line.surah] = nameOf(line.surah);
               else for (const w of line.words) surahNames[w.verseKey.split(":")[0]!] ??= nameOf(Number(w.verseKey.split(":")[0]));
             }
-            return { page, lines, surahNames, basmala: fatiha, ...(await pageScan(page, lines)) };
+            return { page, lines, surahNames, basmala: fatiha, ...(await pageScan(page, lines, config.style?.mushafHd === true)) };
           }),
         );
       }

@@ -808,25 +808,36 @@ function ayahRange(boxes: [number, number, number, number][] | undefined) {
 
 /** Size of a scanned page drawn inside a `width` × `maxHeight` box (frame and header included). */
 function scanBox(page: ScannedPage, width: number, maxHeight: number, opts: ScanOpts = {}) {
+  // Header and frame scale with the drawn page, not the box: a wide box around a height-limited page would
+  // otherwise get an oversized header. Guess the page width, fit, then refit with the real width.
+  const first = scanFit(page, width, maxHeight, opts, Math.min(width, maxHeight * 0.75));
+  return scanFit(page, width, maxHeight, opts, Math.min(width, first.outerWidth));
+}
+
+function scanFit(page: ScannedPage, width: number, maxHeight: number, opts: ScanOpts, pageWidth: number) {
   const { image } = page;
   const compact = opts.compact ?? false;
-  const headerSize = Math.max(14, width * (compact ? 0.022 : 0.03));
+  const headerSize = Math.max(14, pageWidth * (compact ? 0.028 : 0.03));
   const headerHeight = headerSize * 1.9;
-  const frame = Math.max(compact ? 3 : 6, width * (compact ? 0.012 : 0.025));
+  const frame = Math.max(compact ? 4 : 6, pageWidth * (compact ? 0.014 : 0.025));
   // The two opening pages are short; crop the empty space below their text.
   const allBoxes = Object.values(page.boxes ?? {}).flat();
+  const k = image.width / 1024;
   const visibleHeight =
-    page.page <= 2 && allBoxes.length ? Math.min(image.height, Math.max(...allBoxes.map(([, y, , bh]) => y + bh)) + 60) : image.height;
+    page.page <= 2 && allBoxes.length
+      ? Math.min(image.height, Math.max(...allBoxes.map(([, y, , bh]) => y + bh)) + 60 * k)
+      : image.height;
   const availW = width - frame * 2;
   const availH = maxHeight - headerHeight - frame * 2;
   const widthScale = availW / image.width;
 
   if (opts.follow) {
-    const pitch = visibleHeight / 15;
-    const desired = Math.max(4, opts.followLines ?? 7) * pitch;
+    // Line pitch of a full 15-line page; the short opening pages are cropped, so use the whole scan height.
+    const pitch = image.height / 15;
+    const desired = Math.min(visibleHeight, Math.max(4, opts.followLines ?? 7) * pitch);
     const heightScale = availH / desired;
     const scale = Math.min(widthScale, heightScale);
-    // Width-limited canvases (9:16) show more lines so follow never shrinks the page.
+    // Width-limited canvases (9:16) show more lines to fill the height, so follow never shrinks the page.
     const windowH = Math.min(visibleHeight, scale === widthScale ? availH / scale : desired);
     return {
       headerSize,
@@ -889,7 +900,19 @@ function followTop(
   return Math.max(0, Math.min(visibleHeight - windowH, center - windowH / 2));
 }
 
-function MushafScan({ props, p, width, maxHeight, dimmed }: { props: SlideProps; p: Palette; width: number; maxHeight: number; dimmed?: boolean }) {
+function MushafScan({
+  props,
+  p,
+  width,
+  maxHeight,
+  dimmed,
+}: {
+  props: SlideProps;
+  p: Palette;
+  width: number;
+  maxHeight: number;
+  dimmed?: boolean;
+}) {
   const { mushafPage, surah, slide, style, surahName } = props;
   const image = mushafPage?.image;
   if (!mushafPage || !image) return null;
@@ -904,7 +927,9 @@ function MushafScan({ props, p, width, maxHeight, dimmed }: { props: SlideProps;
   const top = follow
     ? followTop({ ...mushafPage, image }, surah, slide.ayah.number, windowH, visibleHeight, props)
     : 0;
-  const pad = 10;
+  // Highlight sizes are tuned on the 1024px scan; HD scans use the same look at their own pixel size.
+  const k = image.width / 1024;
+  const pad = 10 * k;
   const current = (mushafPage.boxes?.[`${surah}:${slide.ayah.number}`] ?? []).map(
     ([x, y, bw, bh]) => [x - pad, y - pad * 0.6, bw + pad * 2, bh + pad * 1.2] as const,
   );
@@ -914,7 +939,6 @@ function MushafScan({ props, p, width, maxHeight, dimmed }: { props: SlideProps;
   const wordBoxes = mushafPage.words?.[`${surah}:${slide.ayah.number}`] ?? [];
   const word = (props.highlightedWordIndex ?? -1) >= 0 ? wordBoxes[Math.min(props.highlightedWordIndex!, wordBoxes.length - 1)] : undefined;
   const frameKind = style.mushafFrame ?? "classic";
-  const src = style.mushafHd && image.hdUrl ? image.hdUrl : image.url;
   const fade = Math.max(8, h * 0.04);
 
   return (
@@ -944,7 +968,7 @@ function MushafScan({ props, p, width, maxHeight, dimmed }: { props: SlideProps;
       />
       <div style={{ position: "relative", width: w, height: h, overflow: "hidden" }}>
         <div style={{ position: "absolute", top: 0, left: 0, width: w, transform: `translateY(${-top * scale}px)` }}>
-          <Img src={src} style={{ width: w, height: image.height * scale, display: "block", filter: `url(#${inkId})` }} />
+          <Img src={image.url} style={{ width: w, height: image.height * scale, display: "block", filter: `url(#${inkId})` }} />
           {current.length || dimmed ? (
             <svg
               viewBox={`0 0 ${image.width} ${image.height}`}
@@ -954,26 +978,26 @@ function MushafScan({ props, p, width, maxHeight, dimmed }: { props: SlideProps;
                 <mask id={maskId}>
                   <rect x={0} y={0} width={image.width} height={image.height} fill="white" />
                   {current.map(([x, y, bw, bh], i) => (
-                    <rect key={i} x={x} y={y} width={bw} height={bh} rx={14} fill="black" />
+                    <rect key={i} x={x} y={y} width={bw} height={bh} rx={14 * k} fill="black" />
                   ))}
                 </mask>
               </defs>
               <rect x={0} y={0} width={image.width} height={image.height} fill={paper.bg} opacity={0.6} mask={`url(#${maskId})`} />
               {current.map(([x, y, bw, bh], i) => (
-                <rect key={i} x={x} y={y} width={bw} height={bh} rx={14} fill={p.primary} opacity={0.13} />
+                <rect key={i} x={x} y={y} width={bw} height={bh} rx={14 * k} fill={p.primary} opacity={0.13} />
               ))}
               {word ? (
                 <rect
-                  x={word[0] - 6}
-                  y={word[1] - 6}
-                  width={word[2] + 12}
-                  height={word[3] + 12}
-                  rx={12}
+                  x={word[0] - 6 * k}
+                  y={word[1] - 6 * k}
+                  width={word[2] + 12 * k}
+                  height={word[3] + 12 * k}
+                  rx={12 * k}
                   fill={p.accent}
                   fillOpacity={0.28}
                   stroke={p.accent}
                   strokeOpacity={0.7}
-                  strokeWidth={2.5}
+                  strokeWidth={2.5 * k}
                 />
               ) : null}
             </svg>
@@ -1068,7 +1092,7 @@ export function MushafPageSlide(props: SlideProps) {
     const pageHeight = hasSide ? height - sl.padY * 2 - l.panelY * 2 : available;
     const row = l.innerWidth - (hasSide ? l.columnGap : 0);
     // Follow mode makes the page wider (shorter window → larger scale), so it can claim more of the row.
-    const maxPage = hasSide ? row * (follow ? 0.62 : 0.6) : follow ? Math.min(row, pageHeight * 1.35) : row;
+    const maxPage = hasSide ? row * (follow ? 0.62 : 0.6) : row;
     const measured = mushafPage.image
       ? scanBox({ ...mushafPage, image: mushafPage.image }, maxPage, pageHeight, scanOpts).outerWidth
       : maxPage;

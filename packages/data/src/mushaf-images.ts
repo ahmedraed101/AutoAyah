@@ -3,12 +3,13 @@ import { DatabaseSync } from "node:sqlite";
 
 /**
  * Scanned Madani Mushaf pages (Quran Android / quran.app public files) and the matching
- * "ayahinfo" database, which gives every glyph's bounding box on those 1024px-wide images.
+ * "ayahinfo" database, which gives every glyph's bounding box on the images of the same width.
+ * Each width is laid out on its own (not a plain rescale), so boxes must come from the matching database.
  */
 const BASE = "https://files.quran.app/hafs/madani";
 export const MUSHAF_IMAGE_WIDTH = 1024;
 export const MUSHAF_HD_WIDTH = 1920;
-const AYAHINFO_URL = `${BASE}/databases/ayahinfo/ayahinfo_1024.zip`;
+const ayahInfoUrl = (width: number) => `${BASE}/databases/ayahinfo/ayahinfo_${width}.zip`;
 
 /** [x, y, width, height] in image pixels. */
 export type AyahBox = [number, number, number, number];
@@ -66,8 +67,8 @@ function unzipFirstDb(zip: Buffer): Buffer {
   throw new Error("ayahinfo database not found in zip");
 }
 
-export async function fetchAyahInfoDb(): Promise<Buffer> {
-  return unzipFirstDb(await download(AYAHINFO_URL));
+export async function fetchAyahInfoDb(width: number = MUSHAF_IMAGE_WIDTH): Promise<Buffer> {
+  return unzipFirstDb(await download(ayahInfoUrl(width)));
 }
 
 const dbs = new Map<string, DatabaseSync>();
@@ -82,13 +83,19 @@ function openDb(dbPath: string): DatabaseSync {
 }
 
 /** Waqf signs are separate small glyphs drawn above the line (≈20px tall, a few px wide at 1024px). */
-const isPauseMark = (w: number, h: number) => h < 26 && w < 20;
+const isPauseMark = (w: number, h: number, scale: number) => h < 26 * scale && w < 20 * scale;
 
 /**
  * Per-word boxes in reading order, keyed "surah:ayah". Pause marks and the ayah-end medallion are
  * dropped; `wordCounts` trims leading glyphs such as the ۞ hizb-quarter sign.
  */
-export function wordBoxes(dbPath: string, page: number, wordCounts: Record<string, number>): Record<string, AyahBox[]> {
+export function wordBoxes(
+  dbPath: string,
+  page: number,
+  wordCounts: Record<string, number>,
+  imageWidth: number = MUSHAF_IMAGE_WIDTH,
+): Record<string, AyahBox[]> {
+  const scale = imageWidth / MUSHAF_IMAGE_WIDTH;
   const rows = openDb(dbPath)
     .prepare(
       `SELECT sura_number s, ayah_number a, min_x x0, max_x x1, min_y y0, max_y y1
@@ -99,7 +106,7 @@ export function wordBoxes(dbPath: string, page: number, wordCounts: Record<strin
   for (const r of rows) {
     const w = r.x1 - r.x0;
     const h = r.y1 - r.y0;
-    if (isPauseMark(w, h)) continue;
+    if (isPauseMark(w, h, scale)) continue;
     (glyphs[`${r.s}:${r.a}`] ??= []).push([Math.min(r.x0, r.x1), r.y0, Math.abs(w), h]);
   }
   const out: Record<string, AyahBox[]> = {};

@@ -103,7 +103,7 @@ export const StyleConfigSchema = z.object({
   mushafFollowLines: z.number().min(4).max(12).default(7),
   /** Shrink outer padding and the page frame so the scan can grow. */
   mushafCompact: z.boolean().default(false),
-  /** Prefer the sharper 1920px page scan when available. */
+  /** Use the sharper 1920px page scans (and their own glyph boxes) when available. */
   mushafHd: z.boolean().default(false),
   /** How one ayah (or Mushaf page) hands over to the next. */
   transition: TransitionSchema.default("fade"),
@@ -261,15 +261,7 @@ export const MushafPageSchema = z.object({
   surahNames: z.record(z.string(), z.string()).default({}),
   basmala: z.string().optional(),
   /** Scanned page image; when present it is shown instead of the rebuilt text lines. */
-  image: z
-    .object({
-      url: z.string(),
-      width: z.number(),
-      height: z.number(),
-      /** Sharper 1920px scan of the same page (drawn at the logical 1024 size). */
-      hdUrl: z.string().optional(),
-    })
-    .optional(),
+  image: z.object({ url: z.string(), width: z.number(), height: z.number() }).optional(),
   /** Per-ayah boxes on the image ("surah:ayah" → [x, y, w, h][] in image pixels). */
   boxes: z.record(z.string(), z.array(z.tuple([z.number(), z.number(), z.number(), z.number()]))).optional(),
   /** Per-word boxes in reading order ("surah:ayah" → one [x, y, w, h] per word, ayah-end marker excluded). */

@@ -56,7 +56,19 @@ const previewKey = (c: VideoConfig) => JSON.stringify({ ...c, export: undefined,
 
 /** Fields the server needs for the text-only view; timing, style and backgrounds are applied in the browser. */
 const draftKey = (c: VideoConfig) =>
-  JSON.stringify([c.surah, c.from, c.toSurah, c.to, c.mode, c.tafsir, c.translation, c.aspectRatio, c.style.tajweed]);
+  JSON.stringify([
+    c.surah,
+    c.from,
+    c.toSurah,
+    c.to,
+    c.mode,
+    c.tafsir,
+    c.translation,
+    c.aspectRatio,
+    c.style.tajweed,
+    c.style.mushafHd,
+    c.style.mushafView,
+  ]);
 
 export function Editor() {
   const { t } = useTranslation();

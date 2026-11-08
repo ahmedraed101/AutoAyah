@@ -147,16 +147,7 @@ const edgeFade = (f: number, duration: number) => (duration < 4 ? 1 : f === 0 ||
 const withAssetUrl =
   (asset: (u: string) => string) =>
   <P extends NonNullable<CompositionProps["mushafPages"]>[number]>(p: P): P =>
-    p.image
-      ? {
-          ...p,
-          image: {
-            ...p.image,
-            url: asset(p.image.url),
-            hdUrl: p.image.hdUrl ? asset(p.image.hdUrl) : undefined,
-          },
-        }
-      : p;
+    p.image ? { ...p, image: { ...p.image, url: asset(p.image.url) } } : p;
 
 type SpanProps = Omit<SlideProps, "slide" | "overMedia" | "mushafPage" | "facingPage"> & {
   layout: LayoutSpan;
