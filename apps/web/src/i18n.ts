@@ -235,8 +235,9 @@ const en = {
   mushafView_page: "Full page",
   mushafView_follow: "Follow the ayah",
   mushafViewHint:
-    "Follow enlarges the lines around the recited ayah in 16:9, 1:1 and 4:5. In 9:16 the page already fills the width, so it looks the same.",
+    "Follow zooms in on the recited ayah. Wide formats show fewer lines; narrow ones (9:16, 1:1) also let the page grow past the frame and pan along the line with the recitation.",
   mushafFollowLines: "Lines shown",
+  mushafFollowZoom: "Zoom (narrow formats)",
   mushafCompact: "Larger page (tighter margins)",
   mushafHd: "Sharp pages (HD)",
   transition: "Transition between ayat and pages",
@@ -503,8 +504,10 @@ const ar: Dict = {
   mushafView: "عرض الصفحة",
   mushafView_page: "صفحة كاملة",
   mushafView_follow: "متابعة الآية",
-  mushafViewHint: "المتابعة تكبّر الأسطر حول الآية المتلوّة في ١٦:٩ و١:١ و٤:٥. في ٩:١٦ الصفحة تملأ العرض أصلاً فلا يتغيّر شكلها.",
+  mushafViewHint:
+    "المتابعة تكبّر الآية المتلوّة. في الصيغ العريضة تُعرض أسطر أقل، وفي الضيقة (٩:١٦ و١:١) تكبر الصفحة أكثر من الإطار وتتحرك مع التلاوة على طول السطر.",
   mushafFollowLines: "عدد الأسطر",
+  mushafFollowZoom: "التكبير (الصيغ الضيقة)",
   mushafCompact: "صفحة أكبر (هوامش أضيق)",
   mushafHd: "صفحات حادّة (عالية الدقة)",
   transition: "الانتقال بين الآيات والصفحات",

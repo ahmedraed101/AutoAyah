@@ -26,6 +26,8 @@ export type SlideProps = {
   surah?: number;
   /** 0–1 through the current ayah; used by follow mode to scroll a long ayah. */
   ayahProgress?: number;
+  /** Continuous word position from word timings (2.4 = 40% through the third word); follow mode pans with it. */
+  readPosition?: number;
   /** Previous ayah number on the same page (follow-mode pan source). */
   followFrom?: number;
   /** 0–1 ease from the previous ayah's window to the current one. */
@@ -796,7 +798,15 @@ function OrnateCorners({ size, p }: { size: number; p: Palette }) {
 /** The scanned printed page; everything except the current ayah is softly veiled (all of it when `dimmed`). */
 type ScannedPage = NonNullable<SlideProps["mushafPage"]> & { image: NonNullable<NonNullable<SlideProps["mushafPage"]>["image"]> };
 
-type ScanOpts = { compact?: boolean; follow?: boolean; followLines?: number };
+type ScanOpts = { compact?: boolean; follow?: boolean; followLines?: number; followZoom?: number };
+
+/** Zooming past the page width is for narrow canvases; landscape already enlarges by showing fewer lines. */
+const scanOptsOf = (props: Pick<SlideProps, "style" | "width" | "height">, follow: boolean): ScanOpts => ({
+  compact: props.style.mushafCompact === true,
+  follow,
+  followLines: props.style.mushafFollowLines,
+  followZoom: props.width <= props.height ? props.style.mushafFollowZoom : 1,
+});
 
 /** Vertical range of an ayah's boxes on the page (image pixels). */
 function ayahRange(boxes: [number, number, number, number][] | undefined) {
@@ -836,18 +846,22 @@ function scanFit(page: ScannedPage, width: number, maxHeight: number, opts: Scan
     const pitch = image.height / 15;
     const desired = Math.min(visibleHeight, Math.max(4, opts.followLines ?? 7) * pitch);
     const heightScale = availH / desired;
-    const scale = Math.min(widthScale, heightScale);
-    // Width-limited canvases (9:16) show more lines to fill the height, so follow never shrinks the page.
-    const windowH = Math.min(visibleHeight, scale === widthScale ? availH / scale : desired);
+    // Narrow canvases (9:16, 1:1) run out of width first: let the page grow past it and pan along the line.
+    const zoomScale = widthScale * Math.max(1, opts.followZoom ?? 1);
+    const scale = Math.min(zoomScale, heightScale);
+    // A width-limited window shows more lines to fill the height rather than leave it empty.
+    const windowH = Math.min(visibleHeight, scale === zoomScale ? availH / scale : desired);
+    const windowW = Math.min(image.width, availW / scale);
     return {
       headerSize,
       frame,
       scale,
-      w: image.width * scale,
+      w: windowW * scale,
       h: windowH * scale,
-      outerWidth: image.width * scale + frame * 2,
+      outerWidth: windowW * scale + frame * 2,
       visibleHeight,
       windowH,
+      windowW,
       follow: true as const,
     };
   }
@@ -862,42 +876,83 @@ function scanFit(page: ScannedPage, width: number, maxHeight: number, opts: Scan
     outerWidth: image.width * scale + frame * 2,
     visibleHeight,
     windowH: visibleHeight,
+    windowW: image.width,
     follow: false as const,
   };
 }
 
 const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
-/** Window top (image pixels) that keeps the recited ayah in view. */
-function followTop(
+type Box = [number, number, number, number];
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const center = ([x, y, w, h]: Box) => ({ x: x + w / 2, y: y + h / 2 });
+
+/**
+ * Where the reciter is on the page (image pixels). With word timings it rests on each word and glides to the
+ * next in the word's second half; without, it sweeps each line right to left by ayah progress, swinging back
+ * to the start of the next line at the end.
+ */
+function readPoint(boxes: Box[], words: Box[], props: SlideProps): { x: number; y: number } {
+  if (words.length && props.readPosition != null) {
+    const pos = Math.max(0, props.readPosition);
+    const i = Math.min(words.length - 1, Math.floor(pos));
+    if (i >= words.length - 1) return center(words[words.length - 1]!);
+    const mix = easeInOut(clamp01((pos - i - 0.5) / 0.5));
+    const a = center(words[i]!);
+    const b = center(words[i + 1]!);
+    return { x: lerp(a.x, b.x, mix), y: lerp(a.y, b.y, mix) };
+  }
+  const lines = [...boxes].sort((a, b) => a[1] - b[1]);
+  const total = lines.reduce((s, [, , w]) => s + w, 0);
+  let d = clamp01(props.ayahProgress ?? 0) * total;
+  const SWING = 0.12;
+  for (let i = 0; i < lines.length; i++) {
+    const [x, y, w, h] = lines[i]!;
+    const next = lines[i + 1];
+    if (d > w && next) {
+      d -= w;
+      continue;
+    }
+    const u = w > 0 ? clamp01(d / w) : 1;
+    if (next && u > 1 - SWING) {
+      const mix = easeInOut((u - (1 - SWING)) / SWING);
+      return { x: lerp(x, next[0] + next[2], mix), y: lerp(y + h / 2, next[1] + next[3] / 2, mix) };
+    }
+    return { x: x + w - w * clamp01(u / (next ? 1 - SWING : 1)), y: y + h / 2 };
+  }
+  return { x: 0, y: 0 };
+}
+
+/** Window position (image pixels) that keeps the recited ayah, and the reciter's place in it, in view. */
+function followView(
   page: ScannedPage,
   surah: number | undefined,
   ayah: number,
-  windowH: number,
-  visibleHeight: number,
+  box: { windowH: number; windowW: number; visibleHeight: number },
   props: SlideProps,
-): number {
-  const key = `${surah}:${ayah}`;
-  const range = ayahRange(page.boxes?.[key]);
-  if (!range) return 0;
-  const wordBoxes = page.words?.[key] ?? [];
-  const word = (props.highlightedWordIndex ?? -1) >= 0 ? wordBoxes[Math.min(props.highlightedWordIndex!, wordBoxes.length - 1)] : undefined;
-  let center = range.center;
-  if (range.height > windowH) {
-    if (word) center = word[1] + word[3] / 2;
-    else {
-      const progress = Math.min(1, Math.max(0, props.ayahProgress ?? 0));
-      center = range.top + range.height * progress;
-    }
-  }
+): { top: number; left: number } {
+  const boxes = (page.boxes?.[`${surah}:${ayah}`] ?? []) as Box[];
+  const range = ayahRange(boxes);
+  if (!range) return { top: 0, left: 0 };
+  const point = readPoint(boxes, (page.words?.[`${surah}:${ayah}`] ?? []) as Box[], props);
+  let cy = range.height > box.windowH ? point.y : range.center;
+  let cx = point.x;
   if (props.followFrom != null && (props.followMix ?? 1) < 1) {
-    const prev = ayahRange(page.boxes?.[`${surah}:${props.followFrom}`]);
+    const prevBoxes = (page.boxes?.[`${surah}:${props.followFrom}`] ?? []) as Box[];
+    const prev = ayahRange(prevBoxes);
     if (prev) {
-      const mix = easeInOut(Math.min(1, Math.max(0, props.followMix ?? 1)));
-      center = prev.center + (center - prev.center) * mix;
+      const mix = easeInOut(clamp01(props.followMix ?? 1));
+      const last = [...prevBoxes].sort((a, b) => a[1] - b[1]).pop()!;
+      cy = lerp(prev.height > box.windowH ? last[1] + last[3] / 2 : prev.center, cy, mix);
+      cx = lerp(last[0], cx, mix);
     }
   }
-  return Math.max(0, Math.min(visibleHeight - windowH, center - windowH / 2));
+  const width = page.image.width;
+  return {
+    top: Math.max(0, Math.min(box.visibleHeight - box.windowH, cy - box.windowH / 2)),
+    left: Math.max(0, Math.min(width - box.windowW, cx - box.windowW / 2)),
+  };
 }
 
 function MushafScan({
@@ -916,17 +971,12 @@ function MushafScan({
   const { mushafPage, surah, slide, style, surahName } = props;
   const image = mushafPage?.image;
   if (!mushafPage || !image) return null;
-  const compact = style.mushafCompact === true;
   const follow = style.mushafView === "follow" && !dimmed;
-  const box = scanBox({ ...mushafPage, image }, width, maxHeight, {
-    compact,
-    follow,
-    followLines: style.mushafFollowLines,
-  });
-  const { headerSize, frame, scale, w, h, outerWidth, visibleHeight, windowH } = box;
-  const top = follow
-    ? followTop({ ...mushafPage, image }, surah, slide.ayah.number, windowH, visibleHeight, props)
-    : 0;
+  const box = scanBox({ ...mushafPage, image }, width, maxHeight, scanOptsOf(props, follow));
+  const { headerSize, frame, scale, w, h, outerWidth, visibleHeight, windowH, windowW } = box;
+  const { top, left } = follow
+    ? followView({ ...mushafPage, image }, surah, slide.ayah.number, box, props)
+    : { top: 0, left: 0 };
   // Highlight sizes are tuned on the 1024px scan; HD scans use the same look at their own pixel size.
   const k = image.width / 1024;
   const pad = 10 * k;
@@ -967,12 +1017,20 @@ function MushafScan({
         inset={frameKind === "ornate" ? frame * 1.3 : 0}
       />
       <div style={{ position: "relative", width: w, height: h, overflow: "hidden" }}>
-        <div style={{ position: "absolute", top: 0, left: 0, width: w, transform: `translateY(${-top * scale}px)` }}>
-          <Img src={image.url} style={{ width: w, height: image.height * scale, display: "block", filter: `url(#${inkId})` }} />
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: image.width * scale,
+            transform: `translate(${-left * scale}px, ${-top * scale}px)`,
+          }}
+        >
+          <Img src={image.url} style={{ width: image.width * scale, height: image.height * scale, display: "block", filter: `url(#${inkId})` }} />
           {current.length || dimmed ? (
             <svg
               viewBox={`0 0 ${image.width} ${image.height}`}
-              style={{ position: "absolute", top: 0, left: 0, width: w, height: image.height * scale }}
+              style={{ position: "absolute", top: 0, left: 0, width: image.width * scale, height: image.height * scale }}
             >
               <defs>
                 <mask id={maskId}>
@@ -1029,6 +1087,32 @@ function MushafScan({
             }}
           />
         ) : null}
+        {follow && left > 1 ? (
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              bottom: 0,
+              left: 0,
+              width: fade,
+              background: `linear-gradient(to right, ${paper.bg}, ${paper.bg}00)`,
+              pointerEvents: "none",
+            }}
+          />
+        ) : null}
+        {follow && left + windowW < image.width - 1 ? (
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              bottom: 0,
+              right: 0,
+              width: fade,
+              background: `linear-gradient(to left, ${paper.bg}, ${paper.bg}00)`,
+              pointerEvents: "none",
+            }}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -1048,7 +1132,7 @@ export function MushafPageSlide(props: SlideProps) {
   const available =
     budget(l, height, style.showWatermark && !cornerMark) + l.bannerHeight + l.gap;
   const watermark = style.showWatermark && !cornerMark ? <Watermark text={style.watermarkText} p={p} u={l.u} /> : null;
-  const scanOpts: ScanOpts = { compact, follow, followLines: style.mushafFollowLines };
+  const scanOpts = scanOptsOf(props, follow);
   const page = (w: number, h: number) =>
     mushafPage.image ? <MushafScan props={props} p={p} width={w} maxHeight={h} /> : <MushafPageBlock props={props} p={p} width={w} maxHeight={h} />;
   const cornerWatermark = cornerMark ? (

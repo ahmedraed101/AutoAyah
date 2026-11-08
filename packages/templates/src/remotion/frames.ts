@@ -34,6 +34,19 @@ export function wordIndexAt(slide: Slide, localFrame: number, fps: number): numb
   return before.length ? before[before.length - 1]!.index - 1 : -1;
 }
 
+/** Continuous word position (2.4 = 40% through the third word) from word timings; undefined without timings. */
+export function readPositionAt(slide: Slide, localFrame: number, fps: number): number | undefined {
+  const timings = slide.ayah.wordTimings;
+  if (!timings?.length) return undefined;
+  const ms = (localFrame / fps) * 1000;
+  let pos = 0;
+  for (const t of timings) {
+    if (ms < t.startMs) break;
+    pos = ms < t.endMs && t.endMs > t.startMs ? t.index - 1 + (ms - t.startMs) / (t.endMs - t.startMs) : t.index;
+  }
+  return pos;
+}
+
 /** Tafsir pages share the slide time in proportion to their length, with a short cross-fade. */
 function tafsirPageAt(slide: Slide, localFrame: number): { index: number; opacity: number } {
   const pages = slide.tafsirPages;

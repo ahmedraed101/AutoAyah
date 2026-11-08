@@ -101,6 +101,8 @@ export const StyleConfigSchema = z.object({
   mushafView: z.enum(["page", "follow"]).default("page"),
   /** How many Mushaf lines the follow window shows (more lines = smaller text). */
   mushafFollowLines: z.number().min(4).max(12).default(7),
+  /** Follow mode on narrow canvases (9:16, 1:1): how far past the frame width the page may grow, panning along the line. */
+  mushafFollowZoom: z.number().min(1).max(2.5).default(1.5),
   /** Shrink outer padding and the page frame so the scan can grow. */
   mushafCompact: z.boolean().default(false),
   /** Use the sharper 1920px page scans (and their own glyph boxes) when available. */

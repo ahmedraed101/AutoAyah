@@ -836,13 +836,24 @@ export function Editor() {
                     </Group>
                     <p className="field-hint">{t("mushafViewHint")}</p>
                     {config.style.mushafView === "follow" ? (
-                      <Slider
-                        label={t("mushafFollowLines")}
-                        min={4}
-                        max={12}
-                        value={config.style.mushafFollowLines}
-                        onChange={(mushafFollowLines) => style({ mushafFollowLines })}
-                      />
+                      <>
+                        <Slider
+                          label={t("mushafFollowLines")}
+                          min={4}
+                          max={12}
+                          value={config.style.mushafFollowLines}
+                          onChange={(mushafFollowLines) => style({ mushafFollowLines })}
+                        />
+                        <Slider
+                          label={t("mushafFollowZoom")}
+                          min={1}
+                          max={2.5}
+                          step={0.1}
+                          display={`${config.style.mushafFollowZoom.toFixed(1)}×`}
+                          value={config.style.mushafFollowZoom}
+                          onChange={(mushafFollowZoom) => style({ mushafFollowZoom })}
+                        />
+                      </>
                     ) : null}
                     <div className="switches">
                       <Switch
