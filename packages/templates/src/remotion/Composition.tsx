@@ -5,7 +5,7 @@ import type { CompositionProps } from "../types";
 import { BackgroundLayer } from "../Background";
 import { AyahTafsirSlide, MushafPageSlide, type SlideProps } from "../slides";
 import { ensureArabicFonts } from "../fonts";
-import { audioClips, layoutSpans, pageOf, readPositionAt, slideStateAt, type LayoutSpan } from "./frames";
+import { audioClips, layoutSpans, pageOf, slideStateAt, type LayoutSpan } from "./frames";
 
 export { audioClips, frameKeys, wordIndexAt } from "./frames";
 
@@ -181,7 +181,6 @@ function SpanSlides({ layout, backgrounds, basmala, surahNames, fps, ...rest }: 
     tafsirPageIndex: state.tafsirPageIndex,
     tafsirOpacity: state.tafsirOpacity,
     ayahProgress: state.slide.durationInFrames > 0 ? state.local / state.slide.durationInFrames : 0,
-    readPosition: rest.style.mushafView === "follow" ? readPositionAt(state.slide, state.local, fps) : undefined,
     followFrom: samePage ? prev!.slide.ayah.number : undefined,
     followMix,
   };
