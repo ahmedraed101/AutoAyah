@@ -166,36 +166,43 @@ export function createResolver(opts: ResolveOptions): Resolver {
     return surahsMemo;
   };
 
-  /** First two words of each quarter, read on past one-word ayat (3:1 is only «الٓمٓ»). */
-  const rubOpenings = (starts: { surah: number; ayah: number }[]) =>
-    cachedJson(cache, "rub-openings:v1", "ayah_text", "alquran", async () => {
+  /** First two words at each division start ("surah:ayah" → words), read on past one-word ayat (3:1 is only «الٓمٓ»). */
+  const divisionOpenings = (starts: { surah: number; ayah: number }[]) =>
+    cachedJson(cache, "division-openings:v1", "ayah_text", "alquran", async () => {
       const quran = await fetchQuranText(QURAN_EDITION);
-      return starts.map(({ surah, ayah }) => {
+      const out: Record<string, string> = {};
+      for (const { surah, ayah } of starts) {
         const words: string[] = [];
         for (let n = ayah; words.length < 2 && n <= (quran[surah - 1]?.length ?? 0); n++) {
           const text = splitBasmala(surah, n, quran[surah - 1]![n - 1]!.replace(/^\uFEFF/, "")).text;
           words.push(...text.split(/\s+/).filter((w) => w && !MARK_ONLY.test(w)));
         }
-        return words.slice(0, 2).join(" ");
-      });
+        out[`${surah}:${ayah}`] = words.slice(0, 2).join(" ");
+      }
+      return out;
     });
 
   let divisionsMemo: Promise<QuranDivisions> | null = null;
   const getDivisions = () => {
     divisionsMemo ??= cachedJson(cache, "divisions:v1", "ayah_text", "alquran", fetchDivisionStarts)
       .then(async (s) => {
-        const openings = await rubOpenings(s.rub).catch((e) => {
-          console.warn("[divisions] quarter openings unavailable:", (e as Error).message);
+        const openings = await divisionOpenings([...s.juz, ...s.rub, ...s.page, ...s.manzil]).catch((e) => {
+          console.warn("[divisions] openings unavailable:", (e as Error).message);
           setTimeout(() => (divisionsMemo = null), 60_000);
-          return [] as string[];
+          return {} as Record<string, string>;
         });
-        const rub = divisionsFromStarts(s.rub).map((d, i) => (openings[i] ? { ...d, opening: openings[i] } : d));
+        const withOpenings = (starts: { surah: number; ayah: number }[]) =>
+          divisionsFromStarts(starts).map((d) => {
+            const opening = openings[`${d.start.surah}:${d.start.ayah}`];
+            return opening ? { ...d, opening } : d;
+          });
+        const rub = withOpenings(s.rub);
         return {
-          juz: divisionsFromStarts(s.juz),
-          hizb: rub.flatMap((q, i) => (i % 4 ? [] : [{ n: i / 4 + 1, start: q.start, end: rub[i + 3]!.end }])),
+          juz: withOpenings(s.juz),
+          hizb: rub.flatMap((q, i) => (i % 4 ? [] : [{ ...q, n: i / 4 + 1, end: rub[i + 3]!.end }])),
           rub,
-          page: divisionsFromStarts(s.page),
-          manzil: divisionsFromStarts(s.manzil),
+          page: withOpenings(s.page),
+          manzil: withOpenings(s.manzil),
         };
       })
       .catch((e) => {
