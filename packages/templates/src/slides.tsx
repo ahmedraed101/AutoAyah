@@ -837,8 +837,8 @@ function scanFit(page: ScannedPage, width: number, maxHeight: number, opts: Scan
     const desired = Math.min(visibleHeight, Math.max(4, opts.followLines ?? 7) * pitch);
     const heightScale = availH / desired;
     const scale = Math.min(widthScale, heightScale);
-    // Width-limited canvases (9:16) show more lines to fill the height, so follow never shrinks the page.
-    const windowH = Math.min(visibleHeight, scale === widthScale ? availH / scale : desired);
+    // Always the chosen line count: on width-limited canvases (9:16) the text can't grow, so the window just gets shorter.
+    const windowH = desired;
     return {
       headerSize,
       frame,
@@ -1123,7 +1123,8 @@ export function MushafPageSlide(props: SlideProps) {
     ? scanBox({ ...mushafPage, image: mushafPage.image }, l.columnWidth, available * pageShare, scanOpts)
     : null;
   const pageHeight = scan ? Math.min(available * pageShare, scan.h + scan.headerSize * 1.9 + scan.frame) : available * pageShare;
-  const notesHeight = available - pageHeight - l.gap;
+  // A short follow window doesn't hand its spare height to the notes: the group stays its usual size and centres.
+  const notesHeight = (follow && hasSide ? available * (1 - pageShare) : available - pageHeight) - l.gap;
   return (
     <Frame p={p} l={l} style={style} overMedia={overMedia} compact={compact}>
       {page(l.columnWidth, available * pageShare)}

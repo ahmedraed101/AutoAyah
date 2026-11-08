@@ -235,7 +235,7 @@ const en = {
   mushafView_page: "Full page",
   mushafView_follow: "Follow the ayah",
   mushafViewHint:
-    "Follow enlarges the lines around the recited ayah in 16:9, 1:1 and 4:5. In 9:16 the page already fills the width, so it looks the same.",
+    "Follow shows only the lines around the recited ayah. Fewer lines means larger text where the page has room to grow (16:9, 1:1, 4:5); in 9:16 the page already fills the width, so fewer lines just makes it shorter.",
   mushafFollowLines: "Lines shown",
   mushafCompact: "Larger page (tighter margins)",
   mushafHd: "Sharp pages (HD)",
@@ -503,7 +503,8 @@ const ar: Dict = {
   mushafView: "عرض الصفحة",
   mushafView_page: "صفحة كاملة",
   mushafView_follow: "متابعة الآية",
-  mushafViewHint: "المتابعة تكبّر الأسطر حول الآية المتلوّة في ١٦:٩ و١:١ و٤:٥. في ٩:١٦ الصفحة تملأ العرض أصلاً فلا يتغيّر شكلها.",
+  mushafViewHint:
+    "المتابعة تعرض الأسطر حول الآية المتلوّة فقط. أسطر أقل تعني خطاً أكبر حيث تتسع الصفحة (١٦:٩ و١:١ و٤:٥)، أما في ٩:١٦ فالصفحة تملأ العرض أصلاً فتقصر فقط.",
   mushafFollowLines: "عدد الأسطر",
   mushafCompact: "صفحة أكبر (هوامش أضيق)",
   mushafHd: "صفحات حادّة (عالية الدقة)",
