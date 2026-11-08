@@ -9,8 +9,8 @@ export function isMushafMode(mode: string): mode is "mushafPage" | "mushafWords"
 }
 
 /** Wide Mushaf videos without tafsir show the open book: the page and the one facing it. */
-export function isMushafSpread(c: { mode: string; aspectRatio?: string; tafsir?: string | null }): boolean {
-  return isMushafMode(c.mode) && c.aspectRatio === "16:9" && !c.tafsir;
+export function isMushafSpread(c: { mode: string; aspectRatio?: string; tafsir?: string | null; translation?: string | null }): boolean {
+  return isMushafMode(c.mode) && c.aspectRatio === "16:9" && !c.tafsir && !c.translation;
 }
 
 /** In the Madani Mushaf odd pages sit on the right and pair with the next even page. */
@@ -75,6 +75,8 @@ export const StyleConfigSchema = z.object({
   fontSize: z.number().min(20).max(200).default(64),
   /** Largest tafsir text size (px on a 1080 canvas); long tafsir splits into more pages as it grows. */
   tafsirFontSize: z.number().min(24).max(96).default(60),
+  /** Largest translation text size in Mushaf page mode (px on a 1080 canvas); the single-ayah page sizes it itself. */
+  translationFontSize: z.number().min(20).max(80).default(40),
   tajweed: z.boolean().default(true),
   showWatermark: z.boolean().default(true),
   watermarkText: z.string().default("AutoAyah"),

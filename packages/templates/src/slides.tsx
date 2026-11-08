@@ -279,14 +279,30 @@ function Frame({
 
 // ---------- slides ----------
 
-function TafsirBlock({ props, l, p, maxHeight, width = l.columnWidth }: { props: SlideProps; l: Layout; p: Palette; maxHeight: number; width?: number }) {
+/** Smaller headings and card padding for when tafsir and translation share a short strip. */
+const noteChrome = (l: Layout, compact?: boolean) => ({ titleSize: (compact ? 32 : 44) * l.u, padding: (compact ? 24 : 44) * l.u });
+
+function TafsirBlock({
+  props,
+  l,
+  p,
+  maxHeight,
+  width = l.columnWidth,
+  compact,
+}: {
+  props: SlideProps;
+  l: Layout;
+  p: Palette;
+  maxHeight: number;
+  width?: number;
+  compact?: boolean;
+}) {
   const { slide, tafsirName, tafsirPageIndex = 0, tafsirOpacity = 1 } = props;
   const pages = slide.tafsirPages.length ? slide.tafsirPages : slide.ayah.tafsir ? [slide.ayah.tafsir] : [];
   if (!pages.length) return null;
   const text = pages[Math.min(tafsirPageIndex, pages.length - 1)]!;
   const longest = Math.max(...pages.map((t) => t.length));
-  const titleSize = 44 * l.u;
-  const padding = 44 * l.u;
+  const { titleSize, padding } = noteChrome(l, compact);
   const textWidth = width - padding * 2;
   const base = (props.style.tafsirFontSize ?? 60) * l.u;
   const size = fitFontSize(longest, textWidth, maxHeight - titleSize * 1.6 - padding * 2 - l.gap, base, 1.75, NASKH_CHAR_EM);
@@ -313,6 +329,82 @@ function TafsirBlock({ props, l, p, maxHeight, width = l.columnWidth }: { props:
       >
         <div style={{ opacity: tafsirOpacity, minHeight }}>{text}</div>
       </div>
+    </>
+  );
+}
+
+const TRANSLATION_CHAR_EM = 0.5;
+const TRANSLATION_FONT = `"Segoe UI", Roboto, "Noto Sans", Arial, ${UI_FONT}`;
+
+/** Size and estimated height of the translation quote, fitted into `maxHeight`. */
+function translationFit(props: SlideProps, l: Layout, width: number, maxHeight: number, compact?: boolean) {
+  const text = props.slide.ayah.translation;
+  if (!text) return null;
+  const labelSize = (compact ? 22 : 26) * l.u;
+  const bar = 5 * l.u;
+  const indent = 28 * l.u;
+  const padY = 8 * l.u;
+  const textWidth = width - bar - indent;
+  const chrome = labelSize * 1.4 + padY * 3;
+  const base = (props.style.translationFontSize ?? 40) * l.u;
+  const size = fitFontSize(text.length, textWidth, maxHeight - chrome, base, 1.5, TRANSLATION_CHAR_EM, 14 * l.u);
+  const height = chrome + Math.ceil((text.length * TRANSLATION_CHAR_EM * size) / textWidth) * size * 1.5;
+  const rtl = /^[^A-Za-z\u0590-\u08FF]*[\u0590-\u08FF]/.test(text);
+  return { text, labelSize, bar, indent, padY, size, height, rtl };
+}
+
+/** A quote with a side rule, set apart from the tafsir card. */
+function TranslationBlock({ fit, name, p }: { fit: NonNullable<ReturnType<typeof translationFit>>; name?: string; p: Palette }) {
+  return (
+    <div
+      dir={fit.rtl ? "rtl" : "ltr"}
+      style={{
+        borderInlineStart: `${fit.bar}px solid ${p.accent}`,
+        paddingInlineStart: fit.indent,
+        paddingBlock: fit.padY,
+        display: "flex",
+        flexDirection: "column",
+        gap: fit.padY,
+        textAlign: "start",
+      }}
+    >
+      <div
+        dir="auto"
+        style={{ fontFamily: TRANSLATION_FONT, fontWeight: 600, fontSize: fit.labelSize, color: p.muted, letterSpacing: "0.04em", lineHeight: 1.4 }}
+      >
+        {name ?? "الترجمة"}
+      </div>
+      <div style={{ fontFamily: TRANSLATION_FONT, fontStyle: "italic", fontWeight: 400, fontSize: fit.size, lineHeight: 1.5, color: p.text, opacity: 0.88 }}>
+        {fit.text}
+      </div>
+    </div>
+  );
+}
+
+/** Tafsir with the translation under it; the translation takes what it needs (up to under half when both show). */
+function SideNotes({
+  props,
+  l,
+  p,
+  width,
+  maxHeight,
+  compact,
+}: {
+  props: SlideProps;
+  l: Layout;
+  p: Palette;
+  width: number;
+  maxHeight: number;
+  compact?: boolean;
+}) {
+  const hasTafsir = Boolean(props.slide.tafsirPages.length || props.slide.ayah.tafsir);
+  const fit = translationFit(props, l, width, hasTafsir ? maxHeight * 0.45 : maxHeight, compact);
+  return (
+    <>
+      {hasTafsir ? (
+        <TafsirBlock props={props} l={l} p={p} width={width} maxHeight={maxHeight - (fit ? fit.height + l.gap : 0)} compact={compact} />
+      ) : null}
+      {fit ? <TranslationBlock fit={fit} name={props.translationName} p={p} /> : null}
     </>
   );
 }
@@ -791,14 +883,14 @@ export function MushafPageSlide(props: SlideProps) {
   const l = layoutFor(width, height, overMedia);
   if (!mushafPage) return <AyahTafsirSlide {...props} />;
 
-  const hasTafsir = Boolean(slide.tafsirPages.length || slide.ayah.tafsir);
+  const hasSide = Boolean(slide.tafsirPages.length || slide.ayah.tafsir || slide.ayah.translation);
   // The page carries its own running header (surah name, page number), so no separate banner is needed.
   const available = budget(l, height, style.showWatermark) + l.bannerHeight + l.gap;
   const watermark = style.showWatermark ? <Watermark text={style.watermarkText} p={p} u={l.u} /> : null;
   const page = (w: number, h: number) =>
     mushafPage.image ? <MushafScan props={props} p={p} width={w} maxHeight={h} /> : <MushafPageBlock props={props} p={p} width={w} maxHeight={h} />;
 
-  if (l.landscape && !hasTafsir && props.facingPage) {
+  if (l.landscape && !hasSide && props.facingPage) {
     // Open book: odd pages on the right, even on the left. Pages are tall, so height limits them —
     // use a tighter vertical margin and fit the panel to the pages.
     const sl = { ...l, padY: height * 0.035 };
@@ -824,39 +916,44 @@ export function MushafPageSlide(props: SlideProps) {
     );
   }
 
-  if (sideBySide(l, width, height, hasTafsir)) {
-    // Full pages are tall, so height limits them: with tafsir, use a tighter vertical margin and put the
-    // watermark under the tafsir so the page gets the full height. The tafsir takes the width the page leaves.
-    const sl = hasTafsir ? { ...l, padY: height * 0.035 } : l;
-    const pageHeight = hasTafsir ? height - sl.padY * 2 - l.panelY * 2 : available;
-    const row = l.innerWidth - (hasTafsir ? l.columnGap : 0);
-    const maxPage = hasTafsir ? row * 0.6 : row;
+  if (sideBySide(l, width, height, hasSide)) {
+    // Full pages are tall, so height limits them: with side notes, use a tighter vertical margin and put the
+    // watermark under them so the page gets the full height. The notes take the width the page leaves.
+    const sl = hasSide ? { ...l, padY: height * 0.035 } : l;
+    const pageHeight = hasSide ? height - sl.padY * 2 - l.panelY * 2 : available;
+    const row = l.innerWidth - (hasSide ? l.columnGap : 0);
+    const maxPage = hasSide ? row * 0.6 : row;
     const pageWidth = mushafPage.image ? Math.min(maxPage, scanBox({ ...mushafPage, image: mushafPage.image }, maxPage, pageHeight).outerWidth) : maxPage;
-    const tafsirWidth = row - pageWidth;
-    const tafsirHeight = pageHeight - (watermark ? l.watermarkHeight + l.gap : 0);
+    const sideWidth = row - pageWidth;
+    const sideHeight = pageHeight - (watermark ? l.watermarkHeight + l.gap : 0);
     return (
       <Frame p={p} l={sl} style={style} overMedia={overMedia}>
         <div style={{ display: "flex", flexDirection: "row", gap: l.columnGap, alignItems: "center", justifyContent: "center" }}>
           <div style={{ flex: "none", display: "flex", flexDirection: "column" }}>{page(maxPage, pageHeight)}</div>
-          {hasTafsir ? (
-            <div style={{ width: tafsirWidth, minWidth: 0, display: "flex", flexDirection: "column", gap: l.gap }}>
-              <TafsirBlock props={props} l={l} p={p} width={tafsirWidth} maxHeight={tafsirHeight} />
+          {hasSide ? (
+            <div style={{ width: sideWidth, minWidth: 0, display: "flex", flexDirection: "column", gap: l.gap }}>
+              <SideNotes props={props} l={l} p={p} width={sideWidth} maxHeight={sideHeight} />
               {watermark}
             </div>
           ) : null}
         </div>
-        {hasTafsir ? null : watermark}
+        {hasSide ? null : watermark}
       </Frame>
     );
   }
 
-  const pageShare = hasTafsir ? 0.68 : 1;
+  const bothNotes = Boolean((slide.tafsirPages.length || slide.ayah.tafsir) && slide.ayah.translation);
+  const pageShare = bothNotes ? 0.5 : hasSide ? 0.68 : 1;
+  // A width-limited scan is shorter than its share; the notes get what it leaves.
+  const scan = mushafPage.image ? scanBox({ ...mushafPage, image: mushafPage.image }, l.columnWidth, available * pageShare) : null;
+  const pageHeight = scan ? Math.min(available * pageShare, scan.h + scan.headerSize * 1.9 + scan.frame) : available * pageShare;
+  const notesHeight = available - pageHeight - l.gap;
   return (
     <Frame p={p} l={l} style={style} overMedia={overMedia}>
       {page(l.columnWidth, available * pageShare)}
-      {hasTafsir ? (
-        <div style={{ height: available * (1 - pageShare) - l.gap, display: "flex", flexDirection: "column", gap: l.gap * 0.5, overflow: "hidden" }}>
-          <TafsirBlock props={props} l={l} p={p} maxHeight={available * (1 - pageShare) - l.gap} />
+      {hasSide ? (
+        <div style={{ height: notesHeight, display: "flex", flexDirection: "column", gap: l.gap * 0.5, overflow: "hidden" }}>
+          <SideNotes props={props} l={l} p={p} width={l.columnWidth} maxHeight={notesHeight} compact={bothNotes && notesHeight < 600 * l.u} />
         </div>
       ) : null}
       {watermark}

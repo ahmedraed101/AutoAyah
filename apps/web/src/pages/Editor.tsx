@@ -621,6 +621,15 @@ export function Editor() {
                     ))}
                   </Select>
                 </Field>
+                {config.translation && view === "mushafPage" ? (
+                  <Slider
+                    label={t("translationFontSize")}
+                    min={20}
+                    max={80}
+                    value={config.style.translationFontSize}
+                    onChange={(translationFontSize) => style({ translationFontSize })}
+                  />
+                ) : null}
               </Section>
             </div>
           )}
