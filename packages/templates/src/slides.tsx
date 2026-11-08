@@ -1212,8 +1212,7 @@ export function MushafPageSlide(props: SlideProps) {
     <Frame p={p} l={l} style={style} overMedia={overMedia} compact={compact}>
       {page(l.columnWidth, available * pageShare)}
       {hasSide ? (
-        // Fixed height keeps the page still from ayah to ayah; short notes sit in the middle of it.
-        <div style={{ height: notesHeight, display: "flex", flexDirection: "column", justifyContent: "center", gap: l.gap * 0.5, overflow: "hidden" }}>
+        <div style={{ height: notesHeight, display: "flex", flexDirection: "column", gap: l.gap * 0.5, overflow: "hidden" }}>
           <SideNotes props={props} l={l} p={p} width={l.columnWidth} maxHeight={notesHeight} compact={bothNotes && notesHeight < 600 * l.u} />
         </div>
       ) : null}
