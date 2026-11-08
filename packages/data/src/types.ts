@@ -53,7 +53,7 @@ export type ResolveOptions = {
 export type ClipRequest = Pick<VideoConfig, "surah" | "from" | "to" | "reciter" | "tafsir" | "translation" | "mode"> & {
   toSurah?: number | null;
   aspectRatio?: VideoConfig["aspectRatio"];
-  style?: { tajweed?: boolean };
+  style?: { tajweed?: boolean; mushafView?: "page" | "follow" };
   /** Text only: skip recitation audio and word timings, and estimate each ayah's length. */
   draft?: boolean;
 };
@@ -72,7 +72,7 @@ export type Resolver = {
   /** Ayat `from`–`to` as one uninterrupted cut of the reciter's surah recording (see `ResolvedAyah.run`). */
   getAudioRun(reciter: string, surah: number, from: number, to: number): Promise<{ data: Buffer; seconds: number }>;
   /** Scanned Mushaf page from the local cache, downloading it once if needed. */
-  getMushafImage(page: number): Promise<{ data: Buffer; width: number; height: number }>;
+  getMushafImage(page: number, hd?: boolean): Promise<{ data: Buffer; width: number; height: number }>;
   importQulFile(filename: string, data: Buffer, kind: CacheKind): Promise<CacheEntry>;
   /** Display names for every id the library can hold, including ones hidden from the pickers. */
   libraryNames(): Promise<LibraryNames>;

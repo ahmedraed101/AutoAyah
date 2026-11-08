@@ -147,7 +147,16 @@ const edgeFade = (f: number, duration: number) => (duration < 4 ? 1 : f === 0 ||
 const withAssetUrl =
   (asset: (u: string) => string) =>
   <P extends NonNullable<CompositionProps["mushafPages"]>[number]>(p: P): P =>
-    p.image ? { ...p, image: { ...p.image, url: asset(p.image.url) } } : p;
+    p.image
+      ? {
+          ...p,
+          image: {
+            ...p.image,
+            url: asset(p.image.url),
+            hdUrl: p.image.hdUrl ? asset(p.image.hdUrl) : undefined,
+          },
+        }
+      : p;
 
 type SpanProps = Omit<SlideProps, "slide" | "overMedia" | "mushafPage" | "facingPage"> & {
   layout: LayoutSpan;
@@ -156,11 +165,18 @@ type SpanProps = Omit<SlideProps, "slide" | "overMedia" | "mushafPage" | "facing
   backgrounds: CompositionProps["config"]["backgrounds"];
 };
 
+const FOLLOW_PAN_SECONDS = 0.6;
+const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+
 function SpanSlides({ layout, backgrounds, basmala, surahNames, fps, ...rest }: SpanProps) {
   const state = slideStateAt(layout, layout.span.from + useCurrentFrame(), fps);
   const { ayah } = state.slide;
   const bg = backgrounds[state.slide.backgroundIndex];
   const surah = ayah.surah ?? rest.surah;
+  const pos = layout.span.slides.findIndex((s) => s.index === state.index);
+  const prev = pos > 0 ? layout.span.slides[pos - 1] : undefined;
+  const samePage = Boolean(prev && prev.slide.ayah.page != null && prev.slide.ayah.page === ayah.page);
+  const followMix = samePage ? easeInOut(Math.min(1, state.local / Math.max(1, FOLLOW_PAN_SECONDS * fps))) : 1;
   const props: SlideProps = {
     ...rest,
     surah,
@@ -173,6 +189,9 @@ function SpanSlides({ layout, backgrounds, basmala, surahNames, fps, ...rest }: 
     highlightedWordIndex: state.highlightedWordIndex,
     tafsirPageIndex: state.tafsirPageIndex,
     tafsirOpacity: state.tafsirOpacity,
+    ayahProgress: state.slide.durationInFrames > 0 ? state.local / state.slide.durationInFrames : 0,
+    followFrom: samePage ? prev!.slide.ayah.number : undefined,
+    followMix,
   };
   const mode = layout.mode;
   // Every ayah view shows the tafsir card when a tafsir is selected.

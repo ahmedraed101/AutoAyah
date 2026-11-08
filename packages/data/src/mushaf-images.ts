@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
  */
 const BASE = "https://files.quran.app/hafs/madani";
 export const MUSHAF_IMAGE_WIDTH = 1024;
+export const MUSHAF_HD_WIDTH = 1920;
 const AYAHINFO_URL = `${BASE}/databases/ayahinfo/ayahinfo_1024.zip`;
 
 /** [x, y, width, height] in image pixels. */
@@ -28,8 +29,8 @@ async function download(url: string, attempts = 3): Promise<Buffer> {
   throw lastError ?? new Error(`${url} failed`);
 }
 
-export function mushafImageUrl(page: number): string {
-  return `${BASE}/width_${MUSHAF_IMAGE_WIDTH}/page${String(page).padStart(3, "0")}.png`;
+export function mushafImageUrl(page: number, width: number = MUSHAF_IMAGE_WIDTH): string {
+  return `${BASE}/width_${width}/page${String(page).padStart(3, "0")}.png`;
 }
 
 export function pngSize(png: Buffer): { width: number; height: number } {
@@ -37,8 +38,8 @@ export function pngSize(png: Buffer): { width: number; height: number } {
   return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 }
 
-export async function fetchMushafImage(page: number): Promise<Buffer> {
-  return download(mushafImageUrl(page));
+export async function fetchMushafImage(page: number, width: number = MUSHAF_IMAGE_WIDTH): Promise<Buffer> {
+  return download(mushafImageUrl(page, width));
 }
 
 /** Extract the first .db file from a zip (stored or deflated) without extra dependencies. */

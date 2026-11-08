@@ -31,6 +31,9 @@ function facts(raw: VideoConfig, catalog: Catalog, t: TFunction, lang: string): 
       ? [
           { key: "paper", text: `${t("mushafPaper")}: ${t(`paper_${c.style.mushafPaper}`)}` },
           { key: "frame", text: `${t("mushafFrame")}: ${t(`frame_${c.style.mushafFrame}`)}` },
+          { key: "view", text: `${t("mushafView")}: ${t(`mushafView_${c.style.mushafView ?? "page"}`)}` },
+          ...(c.style.mushafHd ? [{ key: "hd", text: t("mushafHd") }] : []),
+          ...(c.style.mushafCompact ? [{ key: "compact", text: t("mushafCompact") }] : []),
         ]
       : [{ key: "tajweed", text: c.style.tajweed ? t("tajweedColors") : t("noTajweed") }]),
     {

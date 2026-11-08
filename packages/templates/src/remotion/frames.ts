@@ -207,7 +207,11 @@ export function frameKeys(props: CompositionProps): string[] | null {
     const end = Math.min(totalFrames, layout.span.from + layout.span.duration);
     for (let f = layout.span.from; f < end; f++) {
       const s = slideStateAt(layout, f, fps);
-      keys[f] = `${si}|${s.index}|${s.highlightedWordIndex}|${s.tafsirPageIndex}|${s.tafsirOpacity.toFixed(4)}|${s.enter.toFixed(4)}|${s.shift.toFixed(4)}`;
+      const follow =
+        props.config.style.mushafView === "follow"
+          ? `|${(s.local / Math.max(1, s.slide.durationInFrames)).toFixed(3)}`
+          : "";
+      keys[f] = `${si}|${s.index}|${s.highlightedWordIndex}|${s.tafsirPageIndex}|${s.tafsirOpacity.toFixed(4)}|${s.enter.toFixed(4)}|${s.shift.toFixed(4)}${follow}`;
     }
   });
   return keys;

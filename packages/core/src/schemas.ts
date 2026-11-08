@@ -8,9 +8,16 @@ export function isMushafMode(mode: string): mode is "mushafPage" | "mushafWords"
   return mode === "mushafPage" || mode === "mushafWords";
 }
 
-/** Wide Mushaf videos without tafsir show the open book: the page and the one facing it. */
-export function isMushafSpread(c: { mode: string; aspectRatio?: string; tafsir?: string | null; translation?: string | null }): boolean {
-  return isMushafMode(c.mode) && c.aspectRatio === "16:9" && !c.tafsir && !c.translation;
+/** Wide Mushaf videos without tafsir/translation show the open book: the page and the one facing it. Follow mode stays on one page. */
+export function isMushafSpread(c: {
+  mode: string;
+  aspectRatio?: string;
+  tafsir?: string | null;
+  translation?: string | null;
+  style?: { mushafView?: string } | Record<string, unknown>;
+}): boolean {
+  const view = c.style && "mushafView" in c.style ? (c.style as { mushafView?: string }).mushafView : undefined;
+  return isMushafMode(c.mode) && c.aspectRatio === "16:9" && !c.tafsir && !c.translation && view !== "follow";
 }
 
 /** In the Madani Mushaf odd pages sit on the right and pair with the next even page. */
@@ -90,6 +97,14 @@ export const StyleConfigSchema = z.object({
   mushafPaper: z.enum(["auto", "ivory", "white", "sepia", "mint", "night"]).default("auto"),
   /** Mushaf modes: frame drawn around the page. */
   mushafFrame: z.enum(["classic", "ornate", "simple", "card", "none"]).default("classic"),
+  /** Full page, or a window of lines that follows the recited ayah. */
+  mushafView: z.enum(["page", "follow"]).default("page"),
+  /** How many Mushaf lines the follow window shows (more lines = smaller text). */
+  mushafFollowLines: z.number().min(4).max(12).default(7),
+  /** Shrink outer padding and the page frame so the scan can grow. */
+  mushafCompact: z.boolean().default(false),
+  /** Prefer the sharper 1920px page scan when available. */
+  mushafHd: z.boolean().default(false),
   /** How one ayah (or Mushaf page) hands over to the next. */
   transition: TransitionSchema.default("fade"),
 });
@@ -246,7 +261,15 @@ export const MushafPageSchema = z.object({
   surahNames: z.record(z.string(), z.string()).default({}),
   basmala: z.string().optional(),
   /** Scanned page image; when present it is shown instead of the rebuilt text lines. */
-  image: z.object({ url: z.string(), width: z.number(), height: z.number() }).optional(),
+  image: z
+    .object({
+      url: z.string(),
+      width: z.number(),
+      height: z.number(),
+      /** Sharper 1920px scan of the same page (drawn at the logical 1024 size). */
+      hdUrl: z.string().optional(),
+    })
+    .optional(),
   /** Per-ayah boxes on the image ("surah:ayah" → [x, y, w, h][] in image pixels). */
   boxes: z.record(z.string(), z.array(z.tuple([z.number(), z.number(), z.number(), z.number()]))).optional(),
   /** Per-word boxes in reading order ("surah:ayah" → one [x, y, w, h] per word, ayah-end marker excluded). */

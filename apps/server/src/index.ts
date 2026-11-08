@@ -445,6 +445,19 @@ app.get(
   }),
 );
 
+app.get(
+  "/media/mushaf/hd/:file",
+  handle(async (req, res) => {
+    const m = String(req.params.file).match(/^(\d{1,3})\.png$/);
+    const page = Number(m?.[1]);
+    if (!m || page < 1 || page > 604) return notFound(res);
+    const { data } = await resolver().getMushafImage(page, true);
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.send(data);
+  }),
+);
+
 // Background media — people are filtered by tags, URL slugs and a COCO-SSD person detector, and every
 // people-free result is kept in the library so it is fetched and checked only once.
 function stockKeys(body: unknown) {

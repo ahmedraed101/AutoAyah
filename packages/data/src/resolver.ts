@@ -27,7 +27,7 @@ import {
 } from "./alquran.js";
 import { bufferDurationSeconds, everyayahUrl, fetchAudioBuffer, listEveryayahReciters, localAudioPath, localRunPath } from "./everyayah.js";
 import { fetchMushafPage } from "./mushaf.js";
-import { ayahBoxes, fetchAyahInfoDb, fetchMushafImage, pngSize, wordBoxes } from "./mushaf-images.js";
+import { ayahBoxes, fetchAyahInfoDb, fetchMushafImage, MUSHAF_HD_WIDTH, MUSHAF_IMAGE_WIDTH, pngSize, wordBoxes } from "./mushaf-images.js";
 import { joinMp3Cuts, sliceMp3 } from "./mp3.js";
 import { fetchMp3Span } from "./remote-mp3.js";
 import { fetchMp3qSoar, fetchMp3qTiming, listMp3qReads, mp3qAudioUrl, mp3qSpans, type Mp3qRead } from "./mp3quran.js";
@@ -473,12 +473,23 @@ export function createResolver(opts: ResolveOptions): Resolver {
   const qcTranslationText = (id: number, surah: number) =>
     cachedJson(cache, `qc:translation:v1:${id}:${surah}`, "translation", "quran.com", () => fetchTranslationChapter(content, id, surah));
 
-  async function getMushafImage(page: number): Promise<{ data: Buffer; width: number; height: number }> {
-    const key = `mushafimg:v1:${page}`;
+  async function getMushafImage(
+    page: number,
+    hd = false,
+  ): Promise<{ data: Buffer; width: number; height: number }> {
+    const width = hd ? MUSHAF_HD_WIDTH : MUSHAF_IMAGE_WIDTH;
+    const key = hd ? `mushaf:page:1920:${page}` : `mushafimg:v1:${page}`;
     const hit = await cache.readFile(key);
-    const data = hit ?? (await fetchMushafImage(page));
-    if (!hit) await cache.writeFile(key, "mushaf_layout", "quran.app", data);
-    return { data, ...pngSize(data) };
+    if (hit) return { data: hit, ...pngSize(hit) };
+    try {
+      const data = await fetchMushafImage(page, width);
+      await cache.writeFile(key, "mushaf_layout", "quran.app", data);
+      return { data, ...pngSize(data) };
+    } catch (e) {
+      if (!hd) throw e;
+      console.warn(`[mushaf] HD page ${page} unavailable, falling back to 1024:`, (e as Error).message);
+      return getMushafImage(page, false);
+    }
   }
 
   let ayahInfoPath: Promise<string> | null = null;
@@ -510,7 +521,7 @@ export function createResolver(opts: ResolveOptions): Resolver {
         for (const w of line.words) if (!w.ayahEnd) wordCounts[w.verseKey] = (wordCounts[w.verseKey] ?? 0) + 1;
       }
       return {
-        image: { url: `/media/mushaf/${page}.png`, width, height },
+        image: { url: `/media/mushaf/${page}.png`, hdUrl: `/media/mushaf/hd/${page}.png`, width, height },
         boxes: ayahBoxes(dbPath, page),
         words: wordBoxes(dbPath, page, wordCounts),
       };

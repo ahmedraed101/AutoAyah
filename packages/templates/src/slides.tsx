@@ -24,6 +24,12 @@ export type SlideProps = {
   /** The page opposite `mushafPage` when the open book (two pages) is shown. */
   facingPage?: NonNullable<ResolvedClip["mushafPages"]>[number];
   surah?: number;
+  /** 0–1 through the current ayah; used by follow mode to scroll a long ayah. */
+  ayahProgress?: number;
+  /** Previous ayah number on the same page (follow-mode pan source). */
+  followFrom?: number;
+  /** 0–1 ease from the previous ayah's window to the current one. */
+  followMix?: number;
 };
 
 /** Running-header surah of a page: the surah its first line belongs to. */
@@ -104,14 +110,14 @@ type Layout = {
   columnGap: number;
 };
 
-function layoutFor(width: number, height: number, overMedia = false): Layout {
+function layoutFor(width: number, height: number, overMedia = false, compact = false): Layout {
   const u = Math.min(width, height) / 1080;
   const landscape = width > height * 1.2;
-  const padX = landscape ? width * 0.06 : width * 0.045;
-  const padY = height * (landscape ? 0.07 : 0.05);
-  const panel = overMedia ? panelPad(u) : { x: 0, y: 0 };
+  const padX = landscape ? width * (compact ? 0.035 : 0.06) : width * (compact ? 0.025 : 0.045);
+  const padY = height * (compact ? 0.03 : landscape ? 0.07 : 0.05);
+  const panel = overMedia ? panelPad(u, false, compact) : { x: 0, y: 0 };
   const innerWidth = width - padX * 2 - panel.x * 2;
-  const columnGap = 60 * u;
+  const columnGap = (compact ? 36 : 60) * u;
   const columnWidth = landscape ? (innerWidth - columnGap) / 2 : innerWidth;
   const bannerWidth = Math.min(columnWidth, 1000 * u);
   return {
@@ -125,7 +131,7 @@ function layoutFor(width: number, height: number, overMedia = false): Layout {
     columnWidth,
     bannerWidth,
     bannerHeight: bannerWidth * 0.14,
-    gap: 30 * u,
+    gap: (compact ? 18 : 30) * u,
     watermarkHeight: 110 * u,
   };
 }
@@ -206,7 +212,10 @@ function Watermark({ text, p, u }: { text: string; p: Palette; u: number }) {
 }
 
 /** `roomy` adds side margin for content that is narrower than the frame (the two-page spread). */
-const panelPad = (u: number, roomy = false) => ({ y: 40 * u, x: (roomy ? 96 : 36) * u });
+const panelPad = (u: number, roomy = false, compact = false) => ({
+  y: (compact ? 20 : 40) * u,
+  x: (roomy ? (compact ? 48 : 96) : compact ? 18 : 36) * u,
+});
 
 /** Hex (#rgb / #rrggbb) with a 0–1 alpha channel for the media panel. */
 function withAlpha(hex: string, alpha: number): string {
@@ -238,6 +247,7 @@ function Frame({
   style,
   overMedia,
   fit,
+  compact,
   children,
 }: {
   p: Palette;
@@ -246,9 +256,10 @@ function Frame({
   overMedia?: boolean;
   /** Shrink the panel to its content instead of spanning the full width. */
   fit?: boolean;
+  compact?: boolean;
   children: ReactNode;
 }) {
-  const pad = panelPad(l.u, fit);
+  const pad = panelPad(l.u, fit, compact);
   const panel: CSSProperties = overMedia
     ? {
         background: mediaPanelBackground(style, p.page),
@@ -785,25 +796,114 @@ function OrnateCorners({ size, p }: { size: number; p: Palette }) {
 /** The scanned printed page; everything except the current ayah is softly veiled (all of it when `dimmed`). */
 type ScannedPage = NonNullable<SlideProps["mushafPage"]> & { image: NonNullable<NonNullable<SlideProps["mushafPage"]>["image"]> };
 
+type ScanOpts = { compact?: boolean; follow?: boolean; followLines?: number };
+
+/** Vertical range of an ayah's boxes on the page (image pixels). */
+function ayahRange(boxes: [number, number, number, number][] | undefined) {
+  if (!boxes?.length) return null;
+  const top = Math.min(...boxes.map(([, y]) => y));
+  const bottom = Math.max(...boxes.map(([, y, , bh]) => y + bh));
+  return { top, bottom, center: (top + bottom) / 2, height: bottom - top };
+}
+
 /** Size of a scanned page drawn inside a `width` × `maxHeight` box (frame and header included). */
-function scanBox(page: ScannedPage, width: number, maxHeight: number) {
+function scanBox(page: ScannedPage, width: number, maxHeight: number, opts: ScanOpts = {}) {
   const { image } = page;
-  const headerSize = Math.max(14, width * 0.03);
+  const compact = opts.compact ?? false;
+  const headerSize = Math.max(14, width * (compact ? 0.022 : 0.03));
   const headerHeight = headerSize * 1.9;
-  const frame = Math.max(6, width * 0.025);
+  const frame = Math.max(compact ? 3 : 6, width * (compact ? 0.012 : 0.025));
   // The two opening pages are short; crop the empty space below their text.
   const allBoxes = Object.values(page.boxes ?? {}).flat();
   const visibleHeight =
     page.page <= 2 && allBoxes.length ? Math.min(image.height, Math.max(...allBoxes.map(([, y, , bh]) => y + bh)) + 60) : image.height;
-  const scale = Math.min((width - frame * 2) / image.width, (maxHeight - headerHeight - frame * 2) / visibleHeight);
-  return { headerSize, frame, scale, w: image.width * scale, h: visibleHeight * scale, outerWidth: image.width * scale + frame * 2 };
+  const availW = width - frame * 2;
+  const availH = maxHeight - headerHeight - frame * 2;
+  const widthScale = availW / image.width;
+
+  if (opts.follow) {
+    const pitch = visibleHeight / 15;
+    const desired = Math.max(4, opts.followLines ?? 7) * pitch;
+    const heightScale = availH / desired;
+    const scale = Math.min(widthScale, heightScale);
+    // Width-limited canvases (9:16) show more lines so follow never shrinks the page.
+    const windowH = Math.min(visibleHeight, scale === widthScale ? availH / scale : desired);
+    return {
+      headerSize,
+      frame,
+      scale,
+      w: image.width * scale,
+      h: windowH * scale,
+      outerWidth: image.width * scale + frame * 2,
+      visibleHeight,
+      windowH,
+      follow: true as const,
+    };
+  }
+
+  const scale = Math.min(widthScale, availH / visibleHeight);
+  return {
+    headerSize,
+    frame,
+    scale,
+    w: image.width * scale,
+    h: visibleHeight * scale,
+    outerWidth: image.width * scale + frame * 2,
+    visibleHeight,
+    windowH: visibleHeight,
+    follow: false as const,
+  };
+}
+
+const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+
+/** Window top (image pixels) that keeps the recited ayah in view. */
+function followTop(
+  page: ScannedPage,
+  surah: number | undefined,
+  ayah: number,
+  windowH: number,
+  visibleHeight: number,
+  props: SlideProps,
+): number {
+  const key = `${surah}:${ayah}`;
+  const range = ayahRange(page.boxes?.[key]);
+  if (!range) return 0;
+  const wordBoxes = page.words?.[key] ?? [];
+  const word = (props.highlightedWordIndex ?? -1) >= 0 ? wordBoxes[Math.min(props.highlightedWordIndex!, wordBoxes.length - 1)] : undefined;
+  let center = range.center;
+  if (range.height > windowH) {
+    if (word) center = word[1] + word[3] / 2;
+    else {
+      const progress = Math.min(1, Math.max(0, props.ayahProgress ?? 0));
+      center = range.top + range.height * progress;
+    }
+  }
+  if (props.followFrom != null && (props.followMix ?? 1) < 1) {
+    const prev = ayahRange(page.boxes?.[`${surah}:${props.followFrom}`]);
+    if (prev) {
+      const mix = easeInOut(Math.min(1, Math.max(0, props.followMix ?? 1)));
+      center = prev.center + (center - prev.center) * mix;
+    }
+  }
+  return Math.max(0, Math.min(visibleHeight - windowH, center - windowH / 2));
 }
 
 function MushafScan({ props, p, width, maxHeight, dimmed }: { props: SlideProps; p: Palette; width: number; maxHeight: number; dimmed?: boolean }) {
   const { mushafPage, surah, slide, style, surahName } = props;
   const image = mushafPage?.image;
   if (!mushafPage || !image) return null;
-  const { headerSize, frame, scale, w, h, outerWidth } = scanBox({ ...mushafPage, image }, width, maxHeight);
+  const compact = style.mushafCompact === true;
+  const follow = style.mushafView === "follow" && !dimmed;
+  const box = scanBox({ ...mushafPage, image }, width, maxHeight, {
+    compact,
+    follow,
+    followLines: style.mushafFollowLines,
+  });
+  const { headerSize, frame, scale, w, h, outerWidth, visibleHeight, windowH } = box;
+  const top = follow
+    ? followTop({ ...mushafPage, image }, surah, slide.ayah.number, windowH, visibleHeight, props)
+    : 0;
   const pad = 10;
   const current = (mushafPage.boxes?.[`${surah}:${slide.ayah.number}`] ?? []).map(
     ([x, y, bw, bh]) => [x - pad, y - pad * 0.6, bw + pad * 2, bh + pad * 1.2] as const,
@@ -814,6 +914,8 @@ function MushafScan({ props, p, width, maxHeight, dimmed }: { props: SlideProps;
   const wordBoxes = mushafPage.words?.[`${surah}:${slide.ayah.number}`] ?? [];
   const word = (props.highlightedWordIndex ?? -1) >= 0 ? wordBoxes[Math.min(props.highlightedWordIndex!, wordBoxes.length - 1)] : undefined;
   const frameKind = style.mushafFrame ?? "classic";
+  const src = style.mushafHd && image.hdUrl ? image.hdUrl : image.url;
+  const fade = Math.max(8, h * 0.04);
 
   return (
     <div
@@ -841,36 +943,67 @@ function MushafScan({ props, p, width, maxHeight, dimmed }: { props: SlideProps;
         inset={frameKind === "ornate" ? frame * 1.3 : 0}
       />
       <div style={{ position: "relative", width: w, height: h, overflow: "hidden" }}>
-        <Img src={image.url} style={{ width: w, height: image.height * scale, display: "block", filter: `url(#${inkId})` }} />
-        {current.length || dimmed ? (
-          <svg viewBox={`0 0 ${image.width} ${image.height}`} style={{ position: "absolute", top: 0, left: 0, width: w, height: image.height * scale }}>
-            <defs>
-              <mask id={maskId}>
-                <rect x={0} y={0} width={image.width} height={image.height} fill="white" />
-                {current.map(([x, y, bw, bh], i) => (
-                  <rect key={i} x={x} y={y} width={bw} height={bh} rx={14} fill="black" />
-                ))}
-              </mask>
-            </defs>
-            <rect x={0} y={0} width={image.width} height={image.height} fill={paper.bg} opacity={0.6} mask={`url(#${maskId})`} />
-            {current.map(([x, y, bw, bh], i) => (
-              <rect key={i} x={x} y={y} width={bw} height={bh} rx={14} fill={p.primary} opacity={0.13} />
-            ))}
-            {word ? (
-              <rect
-                x={word[0] - 6}
-                y={word[1] - 6}
-                width={word[2] + 12}
-                height={word[3] + 12}
-                rx={12}
-                fill={p.accent}
-                fillOpacity={0.28}
-                stroke={p.accent}
-                strokeOpacity={0.7}
-                strokeWidth={2.5}
-              />
-            ) : null}
-          </svg>
+        <div style={{ position: "absolute", top: 0, left: 0, width: w, transform: `translateY(${-top * scale}px)` }}>
+          <Img src={src} style={{ width: w, height: image.height * scale, display: "block", filter: `url(#${inkId})` }} />
+          {current.length || dimmed ? (
+            <svg
+              viewBox={`0 0 ${image.width} ${image.height}`}
+              style={{ position: "absolute", top: 0, left: 0, width: w, height: image.height * scale }}
+            >
+              <defs>
+                <mask id={maskId}>
+                  <rect x={0} y={0} width={image.width} height={image.height} fill="white" />
+                  {current.map(([x, y, bw, bh], i) => (
+                    <rect key={i} x={x} y={y} width={bw} height={bh} rx={14} fill="black" />
+                  ))}
+                </mask>
+              </defs>
+              <rect x={0} y={0} width={image.width} height={image.height} fill={paper.bg} opacity={0.6} mask={`url(#${maskId})`} />
+              {current.map(([x, y, bw, bh], i) => (
+                <rect key={i} x={x} y={y} width={bw} height={bh} rx={14} fill={p.primary} opacity={0.13} />
+              ))}
+              {word ? (
+                <rect
+                  x={word[0] - 6}
+                  y={word[1] - 6}
+                  width={word[2] + 12}
+                  height={word[3] + 12}
+                  rx={12}
+                  fill={p.accent}
+                  fillOpacity={0.28}
+                  stroke={p.accent}
+                  strokeOpacity={0.7}
+                  strokeWidth={2.5}
+                />
+              ) : null}
+            </svg>
+          ) : null}
+        </div>
+        {follow && top > 1 ? (
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: fade,
+              background: `linear-gradient(${paper.bg}, ${paper.bg}00)`,
+              pointerEvents: "none",
+            }}
+          />
+        ) : null}
+        {follow && top + windowH < visibleHeight - 1 ? (
+          <div
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: fade,
+              background: `linear-gradient(${paper.bg}00, ${paper.bg})`,
+              pointerEvents: "none",
+            }}
+          />
         ) : null}
       </div>
     </div>
@@ -880,28 +1013,39 @@ function MushafScan({ props, p, width, maxHeight, dimmed }: { props: SlideProps;
 export function MushafPageSlide(props: SlideProps) {
   const { style, width, height, slide, mushafPage, overMedia } = props;
   const p = palette(style);
-  const l = layoutFor(width, height, overMedia);
+  const compact = style.mushafCompact === true;
+  const follow = style.mushafView === "follow";
+  const l = layoutFor(width, height, overMedia, compact);
   if (!mushafPage) return <AyahTafsirSlide {...props} />;
 
   const hasSide = Boolean(slide.tafsirPages.length || slide.ayah.tafsir || slide.ayah.translation);
-  // The page carries its own running header (surah name, page number), so no separate banner is needed.
-  const available = budget(l, height, style.showWatermark) + l.bannerHeight + l.gap;
-  const watermark = style.showWatermark ? <Watermark text={style.watermarkText} p={p} u={l.u} /> : null;
+  // Landscape without side notes: tuck the watermark in a corner so it doesn't steal height.
+  const cornerMark = compact && l.landscape && !hasSide && style.showWatermark;
+  const available =
+    budget(l, height, style.showWatermark && !cornerMark) + l.bannerHeight + l.gap;
+  const watermark = style.showWatermark && !cornerMark ? <Watermark text={style.watermarkText} p={p} u={l.u} /> : null;
+  const scanOpts: ScanOpts = { compact, follow, followLines: style.mushafFollowLines };
   const page = (w: number, h: number) =>
     mushafPage.image ? <MushafScan props={props} p={p} width={w} maxHeight={h} /> : <MushafPageBlock props={props} p={p} width={w} maxHeight={h} />;
+  const cornerWatermark = cornerMark ? (
+    <div style={{ position: "absolute", bottom: l.padY * 0.4, insetInlineStart: l.padX * 0.4, zIndex: 2, transform: "scale(0.7)", transformOrigin: "bottom left" }}>
+      <Watermark text={style.watermarkText} p={p} u={l.u} />
+    </div>
+  ) : null;
 
   if (l.landscape && !hasSide && props.facingPage) {
     // Open book: odd pages on the right, even on the left. Pages are tall, so height limits them —
     // use a tighter vertical margin and fit the panel to the pages.
-    const sl = { ...l, padY: height * 0.035 };
-    const pad = overMedia ? panelPad(l.u, true) : { x: 0, y: 0 };
+    const sl = { ...l, padY: height * (compact ? 0.02 : 0.035) };
+    const pad = overMedia ? panelPad(l.u, true, compact) : { x: 0, y: 0 };
     const gutter = 24 * l.u;
     const pageWidth = (width - l.padX * 2 - pad.x * 2 - gutter) / 2;
-    const pageHeight = height - sl.padY * 2 - pad.y * 2 - (style.showWatermark ? l.watermarkHeight * 0.6 + l.gap : 0);
+    const pageHeight =
+      height - sl.padY * 2 - pad.y * 2 - (style.showWatermark && !cornerMark ? l.watermarkHeight * 0.6 + l.gap : 0);
     const facing = { ...props, mushafPage: props.facingPage, highlightedWordIndex: -1 };
     const sides = mushafPage.page % 2 ? [facing, props] : [props, facing];
     return (
-      <Frame p={p} l={sl} style={style} overMedia={overMedia} fit>
+      <Frame p={p} l={sl} style={style} overMedia={overMedia} fit compact={compact}>
         <div style={{ display: "flex", flexDirection: "row", gap: gutter, alignItems: "center", justifyContent: "center", direction: "ltr" }}>
           {sides.map((side) =>
             side.mushafPage?.image ? (
@@ -911,7 +1055,8 @@ export function MushafPageSlide(props: SlideProps) {
             ),
           )}
         </div>
-        {style.showWatermark ? <Watermark text={style.watermarkText} p={p} u={l.u} /> : null}
+        {style.showWatermark && !cornerMark ? <Watermark text={style.watermarkText} p={p} u={l.u} /> : null}
+        {cornerWatermark}
       </Frame>
     );
   }
@@ -919,15 +1064,19 @@ export function MushafPageSlide(props: SlideProps) {
   if (sideBySide(l, width, height, hasSide)) {
     // Full pages are tall, so height limits them: with side notes, use a tighter vertical margin and put the
     // watermark under them so the page gets the full height. The notes take the width the page leaves.
-    const sl = hasSide ? { ...l, padY: height * 0.035 } : l;
+    const sl = hasSide ? { ...l, padY: height * (compact ? 0.02 : 0.035) } : l;
     const pageHeight = hasSide ? height - sl.padY * 2 - l.panelY * 2 : available;
     const row = l.innerWidth - (hasSide ? l.columnGap : 0);
-    const maxPage = hasSide ? row * 0.6 : row;
-    const pageWidth = mushafPage.image ? Math.min(maxPage, scanBox({ ...mushafPage, image: mushafPage.image }, maxPage, pageHeight).outerWidth) : maxPage;
+    // Follow mode makes the page wider (shorter window → larger scale), so it can claim more of the row.
+    const maxPage = hasSide ? row * (follow ? 0.62 : 0.6) : follow ? Math.min(row, pageHeight * 1.35) : row;
+    const measured = mushafPage.image
+      ? scanBox({ ...mushafPage, image: mushafPage.image }, maxPage, pageHeight, scanOpts).outerWidth
+      : maxPage;
+    const pageWidth = Math.min(maxPage, measured);
     const sideWidth = row - pageWidth;
     const sideHeight = pageHeight - (watermark ? l.watermarkHeight + l.gap : 0);
     return (
-      <Frame p={p} l={sl} style={style} overMedia={overMedia}>
+      <Frame p={p} l={sl} style={style} overMedia={overMedia} compact={compact}>
         <div style={{ display: "flex", flexDirection: "row", gap: l.columnGap, alignItems: "center", justifyContent: "center" }}>
           <div style={{ flex: "none", display: "flex", flexDirection: "column" }}>{page(maxPage, pageHeight)}</div>
           {hasSide ? (
@@ -938,6 +1087,7 @@ export function MushafPageSlide(props: SlideProps) {
           ) : null}
         </div>
         {hasSide ? null : watermark}
+        {cornerWatermark}
       </Frame>
     );
   }
@@ -945,11 +1095,13 @@ export function MushafPageSlide(props: SlideProps) {
   const bothNotes = Boolean((slide.tafsirPages.length || slide.ayah.tafsir) && slide.ayah.translation);
   const pageShare = bothNotes ? 0.5 : hasSide ? 0.68 : 1;
   // A width-limited scan is shorter than its share; the notes get what it leaves.
-  const scan = mushafPage.image ? scanBox({ ...mushafPage, image: mushafPage.image }, l.columnWidth, available * pageShare) : null;
+  const scan = mushafPage.image
+    ? scanBox({ ...mushafPage, image: mushafPage.image }, l.columnWidth, available * pageShare, scanOpts)
+    : null;
   const pageHeight = scan ? Math.min(available * pageShare, scan.h + scan.headerSize * 1.9 + scan.frame) : available * pageShare;
   const notesHeight = available - pageHeight - l.gap;
   return (
-    <Frame p={p} l={l} style={style} overMedia={overMedia}>
+    <Frame p={p} l={l} style={style} overMedia={overMedia} compact={compact}>
       {page(l.columnWidth, available * pageShare)}
       {hasSide ? (
         <div style={{ height: notesHeight, display: "flex", flexDirection: "column", gap: l.gap * 0.5, overflow: "hidden" }}>
@@ -957,6 +1109,7 @@ export function MushafPageSlide(props: SlideProps) {
         </div>
       ) : null}
       {watermark}
+      {cornerWatermark}
     </Frame>
   );
 }

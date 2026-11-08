@@ -810,6 +810,38 @@ export function Editor() {
                     options={FRAMES.map((value) => ({ value, label: t(`frame_${value}`) }))}
                   />
                 </Group>
+                {isMushafMode(config.mode) ? (
+                  <>
+                    <Group label={t("mushafView")}>
+                      <Segmented
+                        value={config.style.mushafView}
+                        onChange={(mushafView) => style({ mushafView })}
+                        options={[
+                          { value: "page", label: t("mushafView_page") },
+                          { value: "follow", label: t("mushafView_follow") },
+                        ]}
+                      />
+                    </Group>
+                    <p className="field-hint">{t("mushafViewHint")}</p>
+                    {config.style.mushafView === "follow" ? (
+                      <Slider
+                        label={t("mushafFollowLines")}
+                        min={4}
+                        max={12}
+                        value={config.style.mushafFollowLines}
+                        onChange={(mushafFollowLines) => style({ mushafFollowLines })}
+                      />
+                    ) : null}
+                    <div className="switches">
+                      <Switch
+                        label={t("mushafCompact")}
+                        checked={config.style.mushafCompact}
+                        onChange={(mushafCompact) => style({ mushafCompact })}
+                      />
+                      <Switch label={t("mushafHd")} checked={config.style.mushafHd} onChange={(mushafHd) => style({ mushafHd })} />
+                    </div>
+                  </>
+                ) : null}
                 <Group label={t("transition")}>
                   <Segmented
                     value={config.style.transition}
