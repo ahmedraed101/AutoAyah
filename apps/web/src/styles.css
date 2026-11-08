@@ -386,10 +386,52 @@ input[type="number"] {
 
 .result-text {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
+}
+
+.queue-link {
+  margin-inline-start: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--turq);
+  white-space: nowrap;
+}
+
+.caption-box {
+  align-self: stretch;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.caption-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  max-height: 4.8em;
+  overflow: auto;
+  user-select: text;
+}
+
+.caption-tags {
+  color: var(--muted);
+}
+
+.caption-copy {
+  flex: none;
+  gap: 6px;
+  font-size: 12.5px;
 }
 
 .stage {

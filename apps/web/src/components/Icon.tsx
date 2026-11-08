@@ -12,6 +12,7 @@ const PATHS = {
   minus: "M6 12h12",
   plus: "M12 6v12 M6 12h12",
   check: "M5 12.5l4.5 4.5L19 7.5",
+  copy: "M9 9h10v11H9z M15 9V5a1 1 0 00-1-1H6a1 1 0 00-1 1v9a1 1 0 001 1h3",
   play: "M8 5.5v13l10-6.5z",
   upload: "M12 16V5 M7.5 9.5L12 5l4.5 4.5 M5 19h14",
   download: "M12 5v11 M7.5 11.5L12 16l4.5-4.5 M5 19h14",

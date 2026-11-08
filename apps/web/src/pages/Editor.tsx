@@ -8,6 +8,7 @@ import {
   ayahKey,
   buildTimeline,
   canUseMode,
+  hashConfig,
   holdOverride,
   isMushafMode,
   needsWordTimings,
@@ -15,15 +16,18 @@ import {
   spansSurahs,
   withWordHighlight,
   withoutWordHighlight,
-  type Job,
   type VideoConfig,
   type VideoMode,
 } from "@autoayah/core";
+import { Link } from "react-router-dom";
 import { AutoAyahComposition, restFrame } from "@autoayah/templates";
 import { api, type MediaResult, type PreviewResult } from "../api";
 import { browserStore } from "../browserStore";
+import { downloadName, useCaption } from "../caption";
+import { CaptionCopy } from "../components/Caption";
 import { Field, Group, Section, Segmented, Select, Slider, Stepper, Switch } from "../components/controls";
 import { Icon, Rosette } from "../components/Icon";
+import { isActive, useJobs } from "../jobs";
 import { useEditor, type Panel } from "../store";
 import { RangePicker } from "../components/RangePicker";
 import { useDivisionTitle } from "../components/SurahLabel";
@@ -86,7 +90,8 @@ export function Editor() {
   const [composing, setComposing] = useState(false);
   const [error, setError] = useState<string>();
   const [draftError, setDraftError] = useState<string>();
-  const [job, setJob] = useState<Job>();
+  const { jobs, upsert } = useJobs();
+  const [dismissedResult, setDismissedResult] = useState<string>();
   const [status, setStatus] = useState<string>();
   const [media, setMedia] = useState<MediaResult[]>([]);
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image");
@@ -94,7 +99,6 @@ export function Editor() {
   const [mediaDone, setMediaDone] = useState(false);
   const [searching, setSearching] = useState(false);
   const shownKind = useRef(mediaKind);
-  const events = useRef<EventSource | null>(null);
   const composeAbort = useRef<AbortController | null>(null);
   const stage = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -138,7 +142,6 @@ export function Editor() {
     void api.reciters().then(setReciters).catch(fail);
     void api.tafsirs().then(setTafsirs).catch(fail);
     void api.translations().then(setTranslations).catch(fail);
-    return () => events.current?.close();
   }, []);
 
   useEffect(() => {
@@ -277,23 +280,9 @@ export function Editor() {
     }
   };
 
-  const follow = (j: Job) => {
-    setJob(j);
-    events.current?.close();
-    if (["done", "failed", "cancelled"].includes(j.status)) return;
-    const es = new EventSource(`/api/jobs/${j.id}/events`, { withCredentials: true });
-    events.current = es;
-    es.onmessage = (ev) => {
-      const next = JSON.parse(ev.data) as Job;
-      setJob(next);
-      if (next.status === "failed") setError(next.error ?? "Render failed");
-      if (["done", "failed", "cancelled"].includes(next.status)) es.close();
-    };
-  };
-
   const generate = async () => {
     setError(undefined);
-    follow(await api.createJob(config));
+    upsert(await api.createJob(config));
   };
 
   const saveProject = async () => {
@@ -383,8 +372,14 @@ export function Editor() {
 
   const onUpload = async (file: File) => applyMedia(await api.uploadMedia(file));
 
-  const progress = Math.round((job?.progress ?? 0) * 100);
-  const rendering = job && (job.status === "queued" || job.status === "rendering");
+  // The newest job for exactly this video; any change to the settings is a new video that can be queued.
+  const configHash = useMemo(() => hashConfig(config), [config]);
+  const job = jobs.find((j) => j.configHash === configHash);
+  const rendering = job && isActive(job) ? job : undefined;
+  const created = job?.status === "done" && job.outputUrl ? job : undefined;
+  const othersActive = jobs.filter((j) => isActive(j) && j !== job).length;
+  const progress = Math.round((rendering?.progress ?? 0) * 100);
+  const caption = useCaption(config);
   const selectedBg = config.backgrounds[0];
   const style = (patch: Partial<VideoConfig["style"]>) => setNested("style", { ...config.style, ...patch });
   const audio = (patch: Partial<VideoConfig["audio"]>) => setNested("audio", { ...config.audio, ...patch });
@@ -1023,18 +1018,19 @@ export function Editor() {
       </section>
 
       <footer className="action-bar">
-        {job?.status === "done" && job.outputUrl ? (
+        {created?.outputUrl && dismissedResult !== created.id ? (
           <div className="result">
-            {/\.(mp4|webm)$/.test(job.outputUrl) ? <video src={job.outputUrl} controls playsInline /> : null}
-            {job.outputUrl.endsWith(".png") ? <img src={job.outputUrl} alt="" /> : null}
+            {/\.(mp4|webm)$/.test(created.outputUrl) ? <video src={created.outputUrl} controls playsInline /> : null}
+            {created.outputUrl.endsWith(".png") ? <img src={created.outputUrl} alt="" /> : null}
             <div className="result-text">
               <strong>{t("ready")}</strong>
-              <a className="btn btn-quiet" href={job.outputUrl} download>
+              <a className="btn btn-quiet" href={created.outputUrl} download={downloadName(caption.title, created.outputUrl)}>
                 <Icon name="download" size={18} />
                 {t("download")}
               </a>
+              <CaptionCopy config={config} />
             </div>
-            <button type="button" className="icon-btn" aria-label={t("close")} onClick={() => setJob(undefined)}>
+            <button type="button" className="icon-btn" aria-label={t("close")} onClick={() => setDismissedResult(created.id)}>
               <Icon name="close" size={18} />
             </button>
           </div>
@@ -1044,7 +1040,14 @@ export function Editor() {
             {rendering ? (
               <>
                 <span className="action-status">
-                  {job.status === "queued" && job.queuePosition ? t("queued", { pos: job.queuePosition }) : `${t("rendering")} ${progress}%`}
+                  {rendering.status === "queued" && rendering.queuePosition
+                    ? t("queued", { pos: rendering.queuePosition })
+                    : `${t("rendering")} ${progress}%`}
+                  {othersActive ? (
+                    <Link className="queue-link" to="/renders">
+                      {t("otherRenders", { n: othersActive })}
+                    </Link>
+                  ) : null}
                 </span>
                 <span className="progress">
                   <span style={{ width: `${progress}%` }} />
@@ -1059,14 +1062,25 @@ export function Editor() {
                     <>
                       {division ? <strong>{division} </strong> : null}
                       <bdi dir={lang === "ar" ? "rtl" : "ltr"}>{rangeText(config, surahs, lang)}</bdi>
-                      <span className="project-sub">{missing.reciter ? t("needReciter") : `${t(config.mode)} · ${config.aspectRatio}`}</span>
+                      <span className="project-sub">
+                        {missing.reciter
+                          ? t("needReciter")
+                          : job?.status === "failed"
+                            ? `${t("status_failed")}: ${job.error ?? ""}`
+                            : `${t(config.mode)} · ${config.aspectRatio}`}
+                        {othersActive ? (
+                          <Link className="queue-link" to="/renders">
+                            {t("otherRenders", { n: othersActive })}
+                          </Link>
+                        ) : null}
+                      </span>
                     </>
                   ))}
               </span>
             )}
           </div>
           {rendering ? (
-            <button type="button" className="btn btn-quiet" onClick={() => void api.cancelJob(job.id).then(setJob)}>
+            <button type="button" className="btn btn-quiet" onClick={() => void api.cancelJob(rendering.id).then(upsert)}>
               {t("cancel")}
             </button>
           ) : (
@@ -1094,9 +1108,10 @@ export function Editor() {
             type="button"
             className="btn btn-primary"
             onClick={() => void generate().catch((e: Error) => setError(e.message))}
-            disabled={!ready || Boolean(rendering)}
+            disabled={!ready || Boolean(rendering || created)}
+            title={rendering ? t("alreadyQueuedHint") : created ? t("alreadyCreatedHint") : undefined}
           >
-            {t("generate")}
+            {rendering ? t("inQueue") : created ? t("created") : t("generate")}
           </button>
         </div>
       </footer>

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync, rmSync } from "node:fs";
-import { hashConfig, stableStringify, type Job, type JobStatus, type VideoConfig } from "@autoayah/core";
+import { hashConfig, type Job, type JobStatus, type VideoConfig } from "@autoayah/core";
 import type { Db, JobRow } from "./db/index.js";
 
 function rowToJob(row: JobRow, queuePosition?: number): Job {
@@ -52,18 +52,7 @@ export class RenderQueue {
 
   enqueue(config: VideoConfig, parentId?: string): Job {
     const configHash = hashConfig(config);
-    const configJson = stableStringify(config);
-    // Never render the same video twice: reuse an identical job that is waiting, running,
-    // or finished with its files still on disk.
-    const existing = this.db
-      .jobsByHash(configHash)
-      .find(
-        (j) =>
-          stableStringify(JSON.parse(j.config_json)) === configJson &&
-          (j.status === "queued" ||
-            j.status === "rendering" ||
-            (j.status === "done" && j.output_url && outputPaths(j).every((p) => existsSync(p)))),
-      );
+    const existing = this.reusable(configHash);
     if (existing && !parentId) return this.get(existing.id)!;
 
     const now = new Date().toISOString();
@@ -87,6 +76,22 @@ export class RenderQueue {
     return this.get(id)!;
   }
 
+  /**
+   * Never render the same video twice: a job for the same video that is waiting, running,
+   * or finished with its files still on disk. The hash ignores labels that don't change the video.
+   */
+  private reusable(configHash: string, exceptId?: string): JobRow | undefined {
+    return this.db
+      .jobsByHash(configHash)
+      .find(
+        (j) =>
+          j.id !== exceptId &&
+          (j.status === "queued" ||
+            j.status === "rendering" ||
+            (j.status === "done" && Boolean(j.output_url) && outputPaths(j).every((p) => existsSync(p)))),
+      );
+  }
+
   get(id: string): Job | null {
     const row = this.db.getJob(id);
     if (!row) return null;
@@ -95,7 +100,8 @@ export class RenderQueue {
   }
 
   list(limit = 50): Job[] {
-    return this.db.listJobs(limit).map((r) => rowToJob(r));
+    const waiting = new Map(this.db.jobsByStatus("queued").map((j, i) => [j.id, i + 1]));
+    return this.db.listJobs(limit).map((r) => rowToJob(r, waiting.get(r.id)));
   }
 
   countSince(isoTime: string): number {
@@ -118,6 +124,8 @@ export class RenderQueue {
     const row = this.db.getJob(id);
     if (!row) return null;
     if (row.status !== "failed" && row.status !== "cancelled") return this.get(id);
+    const twin = this.reusable(row.config_hash, id);
+    if (twin) return this.get(twin.id);
     const now = new Date().toISOString();
     this.db.updateJob(id, {
       status: "queued",

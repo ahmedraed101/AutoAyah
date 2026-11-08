@@ -1,13 +1,26 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import type { Job } from "@autoayah/core";
+import type { Job, VideoConfig } from "@autoayah/core";
 import { api } from "../api";
+import { downloadName, useCaption } from "../caption";
+import { CaptionCopy } from "../components/Caption";
 import { ConfigSummary, useDifferences } from "../components/ConfigSummary";
 import { Icon } from "../components/Icon";
 import { Empty, SurahLabel } from "../components/SurahLabel";
 
 const ACTIVE = new Set(["queued", "rendering"]);
+
+function DownloadLink({ config, url }: { config: VideoConfig; url: string }) {
+  const { t } = useTranslation();
+  const caption = useCaption(config);
+  return (
+    <a className="btn btn-quiet accent" href={url} download={downloadName(caption.title, url)} aria-label={t("download")}>
+      <Icon name="download" size={18} />
+      <span className="label-wide">{t("download")}</span>
+    </a>
+  );
+}
 
 export function Renders() {
   const { t } = useTranslation();
@@ -58,14 +71,10 @@ export function Renders() {
                 </span>
               ) : null}
               {j.error ? <p className="notice error">{j.error}</p> : null}
+              {j.status === "done" ? <CaptionCopy config={j.config} /> : null}
             </div>
             <div className="list-actions">
-              {j.outputUrl ? (
-                <a className="btn btn-quiet accent" href={j.outputUrl} download aria-label={t("download")}>
-                  <Icon name="download" size={18} />
-                  <span className="label-wide">{t("download")}</span>
-                </a>
-              ) : null}
+              {j.outputUrl ? <DownloadLink config={j.config} url={j.outputUrl} /> : null}
               {ACTIVE.has(j.status) ? (
                 <button type="button" className="btn btn-quiet" onClick={() => act(api.cancelJob(j.id))}>
                   {t("cancel")}
