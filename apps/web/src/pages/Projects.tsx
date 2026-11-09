@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { Project } from "@autoayah/core";
 import { api } from "../api";
 import { browserStore } from "../browserStore";
+import { CaptionCopy } from "../components/Caption";
 import { ConfigSummary, useDifferences } from "../components/ConfigSummary";
 import { Icon } from "../components/Icon";
 import { Empty, SurahLabel } from "../components/SurahLabel";
@@ -77,10 +78,13 @@ export function Projects() {
       <ul className="list">
         {items.map((p) => (
           <li key={p.id} className="list-item">
-            <button type="button" className="list-main" onClick={() => open(p)}>
-              <SurahLabel config={p.config} meta={new Date(p.updatedAt).toLocaleDateString()} />
-              <ConfigSummary config={p.config} differs={differences(p.config)} />
-            </button>
+            <div className="list-main">
+              <button type="button" className="list-open" onClick={() => open(p)}>
+                <SurahLabel config={p.config} meta={new Date(p.updatedAt).toLocaleDateString()} />
+                <ConfigSummary config={p.config} differs={differences(p.config)} />
+              </button>
+              <CaptionCopy config={p.config} />
+            </div>
             <div className="list-actions">
               <a
                 className="btn btn-quiet"

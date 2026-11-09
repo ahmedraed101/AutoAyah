@@ -1428,7 +1428,16 @@ input[type="range"]::-moz-range-thumb {
   text-align: start;
 }
 
-button.list-main:hover .surah-en {
+.list-open {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  text-align: start;
+}
+
+.list-open:hover .surah-en {
   color: var(--turq);
 }
 

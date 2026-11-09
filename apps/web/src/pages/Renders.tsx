@@ -71,7 +71,7 @@ export function Renders() {
                 </span>
               ) : null}
               {j.error ? <p className="notice error">{j.error}</p> : null}
-              {j.status === "done" ? <CaptionCopy config={j.config} /> : null}
+              <CaptionCopy config={j.config} />
             </div>
             <div className="list-actions">
               {j.outputUrl ? <DownloadLink config={j.config} url={j.outputUrl} /> : null}
