@@ -46,6 +46,7 @@ import {
   type QcResource,
 } from "./quran-com.js";
 import type { LibraryNames } from "./library.js";
+import { expandMuqattaat, hasBackReference, MUQATTAAT } from "./muqattaat.js";
 import type { CacheKind, CacheStore, ResolveOptions, Resolver } from "./types.js";
 
 const QURAN_EDITION = "quran-uthmani";
@@ -729,6 +730,16 @@ export function createResolver(opts: ResolveOptions): Resolver {
         new Map(Object.entries(rec ?? {}).map(([n, text]) => [Number(n), { n: Number(n), text }]));
 
       const recording = config.draft ? null : await recordingOf(config.reciter);
+      // Later surahs' opening letters often just refer back to 2:1; the video shows that tafsir's own 2:1 instead.
+      const baqarahTafsir = async () => {
+        try {
+          if (qcTafsir != null) return (await qcTafsirText(qcTafsir, 2))[1];
+          return config.tafsir ? (await getEditions(2, [config.tafsir])).get(config.tafsir)?.ayahs.find((a) => a.n === 1)?.text : undefined;
+        } catch {
+          return undefined;
+        }
+      };
+      let baqarahOpening: Promise<string | undefined> | undefined;
 
       // One surah at a time keeps audio downloads bounded on long (juz-sized) clips.
       const parts: { editions: Map<string, CachedEdition>; ayat: ResolvedAyah[] }[] = [];
@@ -748,6 +759,11 @@ export function createResolver(opts: ResolveOptions): Resolver {
         const quran = [...byNumber(QURAN_EDITION).values()];
         const tajweed = byNumber(wantTajweed ? TAJWEED_EDITION : null);
         const tafsir = qcTafsir != null ? fromRecord(qcTafsirMap) : byNumber(config.tafsir);
+        for (const [n, entry] of tafsir) {
+          if (!inRange(n) || !MUQATTAAT.has(`${seg.surah}:${n}`) || !hasBackReference(entry.text)) continue;
+          const explanation = await (baqarahOpening ??= baqarahTafsir());
+          if (explanation) tafsir.set(n, { ...entry, text: expandMuqattaat(entry.text, explanation) });
+        }
         const translation = qcTranslation != null ? fromRecord(qcTranslationMap) : byNumber(config.translation);
         const timings = wantTimings && !config.draft
           ? await wordTimings({ ...seg, reciter: config.reciter }, stamps)
