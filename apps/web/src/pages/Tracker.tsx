@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { VideoConfigSchema, type Series, type SeriesUnitView } from "@autoayah/core";
@@ -58,6 +58,11 @@ function TrackerBody() {
   }, [series, requested, setParams]);
 
   useEffect(() => {
+    setUnits([]);
+    setSelected(null);
+  }, [current?.id]);
+
+  useEffect(() => {
     if (!current) return;
     let live = true;
     api
@@ -80,11 +85,18 @@ function TrackerBody() {
     return () => clearInterval(id);
   }, [live]);
 
-  const done = units.filter((unit) => unit.status === "done").length;
+  const done = units.filter((unit) => unit.status === "done" || unit.status === "removed").length;
   const uploaded = units.filter((unit) => level(unit, current?.platforms ?? []) === "all").length;
   const unit = units.find((item) => item.key === selected) ?? null;
+  const juzList = useMemo(() => [...new Set(units.map((item) => item.juz))].sort((a, b) => a - b), [units]);
+  const juzIndex = juzList.indexOf(juz);
   const inJuz = units.filter((item) => item.juz === juz);
   const mid = Math.ceil(inJuz.length / 2);
+
+  useEffect(() => {
+    const first = juzList[0];
+    if (first != null && !juzList.includes(juz)) setJuz(first);
+  }, [juzList, juz]);
 
   const choose = (id: string) => {
     sessionStorage.setItem("aa-series", id);
@@ -170,7 +182,7 @@ function TrackerBody() {
               <div className={`unit-grid${units.some((item) => item.label.length > 3) ? " wide-tiles" : ""}`}>{units.map(tile)}</div>
             ) : (
               <div className="book">
-                <button type="button" className="btn btn-quiet" disabled={juz <= 1} onClick={() => setJuz((n) => n - 1)}>
+                <button type="button" className="btn btn-quiet" disabled={juzIndex <= 0} onClick={() => setJuz(juzList[juzIndex - 1]!)}>
                   {t("bookPrev")}
                 </button>
                 <div>
@@ -180,7 +192,12 @@ function TrackerBody() {
                     <div className="book-page">{inJuz.slice(mid).map(tile)}</div>
                   </div>
                 </div>
-                <button type="button" className="btn btn-quiet" disabled={juz >= 30} onClick={() => setJuz((n) => n + 1)}>
+                <button
+                  type="button"
+                  className="btn btn-quiet"
+                  disabled={juzIndex < 0 || juzIndex >= juzList.length - 1}
+                  onClick={() => setJuz(juzList[juzIndex + 1]!)}
+                >
                   {t("bookNext")}
                 </button>
               </div>
@@ -212,15 +229,18 @@ function UnitPanel({
   const config = unit.job?.config;
   const caption = useCaption(config ?? fallbackConfig);
   const active = unit.status === "queued" || unit.status === "rendering";
+  const again = unit.status === "done" || unit.status === "failed" || unit.status === "cancelled" || unit.status === "removed";
   const run = async () => {
+    if (again && unit.uploads.length && !confirm(t("regenerateUploadedConfirm"))) return;
     setBusy(true);
     setError(undefined);
     try {
       const result = await api.runSeries(seriesId, {
         select: { type: "keys", keys: [unit.key] },
-        regenerate: unit.status === "done" || unit.status === "failed" || unit.status === "cancelled",
+        regenerate: again,
       });
-      if (result.error) setError(result.error);
+      if (result.failed) setError(t("failedSome", { n: result.failed, error: result.errors.join(" ") }));
+      else if (!result.queued && result.unchanged) setError(t("alreadyUpToDate"));
       onRefresh();
     } catch (e) {
       setError((e as Error).message);
@@ -243,6 +263,7 @@ function UnitPanel({
           <span style={{ width: `${Math.round((unit.job?.progress ?? 0) * 100)}%` }} />
         </span>
       ) : null}
+      {unit.status === "removed" ? <p className="notice">{t("videoRemoved")}</p> : null}
       {unit.job?.error ? <p className="notice error">{unit.job.error}</p> : null}
       <div className="btn-row">
         {unit.job?.outputUrl && config ? (
@@ -256,7 +277,12 @@ function UnitPanel({
         </button>
       </div>
       {config ? <CaptionCopy config={config} /> : null}
-      <UploadTicks jobId={unit.job?.id} uploads={unit.uploads} targets={targets} onChange={onRefresh} />
+      <UploadTicks
+        jobId={unit.status === "done" || unit.status === "removed" ? unit.jobId : null}
+        uploads={unit.uploads}
+        targets={targets}
+        onChange={onRefresh}
+      />
       {error ? <p className="notice error">{error}</p> : null}
     </aside>
   );

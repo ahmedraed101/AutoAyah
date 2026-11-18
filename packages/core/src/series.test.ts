@@ -85,6 +85,16 @@ describe("unitsToQueue", () => {
     expect(picked.skipped).toBe(2);
   });
 
+  it("leaves a unit alone after its video file was deleted", () => {
+    const few = units.slice(0, 3);
+    const statusOf = (unit: (typeof few)[number]) => (unit.key === "surah:1" ? "removed" : "none");
+    const picked = unitsToQueue(few, { type: "all" }, statusOf, false);
+    expect(picked.queue.map((unit) => unit.key)).toEqual(["surah:2", "surah:3"]);
+    expect(picked.skipped).toBe(1);
+    expect(unitsToQueue(few, { type: "nextN", n: 1 }, statusOf, false).queue.map((unit) => unit.key)).toEqual(["surah:2"]);
+    expect(unitsToQueue(few, { type: "keys", keys: ["surah:1"] }, statusOf, true).queue.map((unit) => unit.key)).toEqual(["surah:1"]);
+  });
+
   it("includes them again when regenerating, and nextN walks past them", () => {
     expect(unitsToQueue(units, { type: "range", from: 1, to: 1 }, statusOf, true).queue.map((unit) => unit.key)).toEqual(["surah:1"]);
     expect(unitsToQueue(units, { type: "nextN", n: 2 }, statusOf, false).queue.map((unit) => unit.key)).toEqual(["surah:3", "surah:4"]);

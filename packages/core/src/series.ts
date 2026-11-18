@@ -119,8 +119,11 @@ export type SeriesUnit = {
 
 export type SeriesUnitView = SeriesUnit & {
   juz: number;
-  status: "none" | "queued" | "rendering" | "done" | "failed" | "cancelled";
+  /** `removed` means the unit was rendered, then its job (and file) was deleted. Its upload ticks stay. */
+  status: "none" | "queued" | "rendering" | "done" | "failed" | "cancelled" | "removed";
   job: Job | null;
+  /** The linked job, including one whose row was deleted. */
+  jobId: string | null;
   uploads: Upload[];
 };
 
@@ -174,7 +177,7 @@ export function unitJuz(unit: Pick<SeriesUnit, "range">, divisions: QuranDivisio
   return divisions.juz.find((d) => atOrAfter(ref, d.start) && atOrBefore(ref, d.end))?.n ?? 1;
 }
 
-const BUSY = new Set(["done", "queued", "rendering"]);
+const BUSY = new Set(["done", "queued", "rendering", "removed"]);
 
 /**
  * Units a run will enqueue. Done, queued and rendering units are left alone unless `regenerate` is set.

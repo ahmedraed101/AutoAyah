@@ -117,7 +117,10 @@ export const api = {
   deleteSeries: (id: string) => json<{ ok: boolean }>(`/api/series/${id}`, { method: "DELETE" }),
   seriesUnits: (id: string) => json<{ units: SeriesUnitView[] }>(`/api/series/${id}/units`),
   runSeries: (id: string, body: { select: UnitSelect; regenerate?: boolean }) =>
-    json<{ queued: number; skipped: number; error?: string }>(`/api/series/${id}/run`, { method: "POST", body: JSON.stringify(body) }),
+    json<{ queued: number; skipped: number; unchanged: number; failed: number; errors: string[] }>(`/api/series/${id}/run`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   setUpload: (body: { jobId: string; platform: PlatformId; url?: string | null }) =>
     json<Upload>("/api/uploads", { method: "PUT", body: JSON.stringify(body) }),
   clearUpload: (jobId: string, platform: PlatformId) => json<{ ok: boolean }>(`/api/uploads/${jobId}/${platform}`, { method: "DELETE" }),

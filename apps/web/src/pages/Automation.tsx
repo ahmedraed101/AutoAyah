@@ -85,7 +85,10 @@ function AutomationBody() {
   }, [series, id]);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id) {
+      setSavedUnits([]);
+      return;
+    }
     let live = true;
     api.seriesUnits(id).then((res) => live && setSavedUnits(res.units)).catch(() => live && setSavedUnits([]));
     return () => {
@@ -130,6 +133,13 @@ function AutomationBody() {
     const chosen = select.type === "keys" && !picked.length ? { queue: [], skipped: 0 } : unitsToQueue(units, select, statusOf, regenerate);
     return chosen;
   }, [units, select, sameShape, savedUnits, regenerate, picked.length]);
+
+  const chunkKey = chunkSurahs.join(",");
+  useEffect(() => {
+    if (!units.length) return;
+    setRangeFrom(1);
+    setRangeTo(units.length);
+  }, [unitKind, chunkSize, chunkKey, units.length]);
 
   useEffect(() => {
     const first = plan.queue[0] ?? units[0];
@@ -178,12 +188,13 @@ function AutomationBody() {
       loadedId.current = savedSeries.id;
       const result = await api.runSeries(savedSeries.id, { select: runSelect, regenerate });
       await reload();
-      if (result.error) {
-        setError(result.queued ? t("queuedSome", { n: result.queued, error: result.error }) : result.error);
+      if (result.failed) {
+        const failed = t("failedSome", { n: result.failed, error: result.errors.join(" ") });
+        setError(result.queued ? t("queuedSome", { n: result.queued, error: failed }) : failed);
         return;
       }
       if (!result.queued) {
-        setError(t("nothingToQueue"));
+        setError(result.unchanged ? t("alreadyUpToDate") : t("nothingToQueue"));
         return;
       }
       nav(`/tracker?series=${savedSeries.id}`);
@@ -201,6 +212,9 @@ function AutomationBody() {
     setId(null);
     await reload();
   };
+
+  const shapeLocked = Boolean(id && savedUnits.some((unit) => unit.status !== "none"));
+  const clampRange = (value: number) => Math.min(units.length || 1, Math.max(1, value));
 
   return (
     <div className="auto-page fill-page">
@@ -250,14 +264,15 @@ function AutomationBody() {
         ) : null}
 
         <Field label={t("unitKind")}>
-          <select value={unitKind} onChange={(e) => setUnitKind(e.target.value as SeriesUnitKind)}>
+          <select value={unitKind} disabled={shapeLocked} onChange={(e) => setUnitKind(e.target.value as SeriesUnitKind)}>
             {KINDS.map((kind) => (
               <option key={kind} value={kind}>
                 {t(kindLabel(kind))}
               </option>
             ))}
-          </select>
-        </Field>
+            </select>
+          </Field>
+        {shapeLocked ? <p className="field-hint">{t("shapeLocked")}</p> : null}
         {unitKind === "chunk" ? (
           <>
             <Field label={t("chunkSize")}>
@@ -266,16 +281,17 @@ function AutomationBody() {
                 min={1}
                 max={50}
                 value={chunkSize}
+                disabled={shapeLocked}
                 onChange={(e) => setChunkSize(Math.min(50, Math.max(1, Number(e.target.value) || 1)))}
               />
             </Field>
             <div className="field">
               <span className="field-label">{t("chunkSurahs")}</span>
               <div className="btn-row">
-                <button type="button" className="btn btn-quiet btn-sm" onClick={() => setChunkSurahs(surahs.map((s) => s.number))}>
+                <button type="button" className="btn btn-quiet btn-sm" disabled={shapeLocked} onClick={() => setChunkSurahs(surahs.map((s) => s.number))}>
                   {t("selectAllSurahs")}
                 </button>
-                <button type="button" className="btn btn-quiet btn-sm" onClick={() => setChunkSurahs([])}>
+                <button type="button" className="btn btn-quiet btn-sm" disabled={shapeLocked} onClick={() => setChunkSurahs([])}>
                   {t("selectNoSurahs")}
                 </button>
               </div>
@@ -288,6 +304,7 @@ function AutomationBody() {
                       type="button"
                       className={on ? "on" : ""}
                       aria-pressed={on}
+                      disabled={shapeLocked}
                       onClick={() => setChunkSurahs((prev) => (on ? prev.filter((n) => n !== s.number) : [...prev, s.number].sort((a, b) => a - b)))}
                     >
                       {localDigits(s.number, lang)}
@@ -403,10 +420,10 @@ function AutomationBody() {
         {selectType === "range" ? (
           <div className="pair">
             <Field label={t("from")}>
-              <input type="number" min={1} max={units.length || 1} value={rangeFrom} onChange={(e) => setRangeFrom(Math.max(1, Number(e.target.value) || 1))} />
+              <input type="number" min={1} max={units.length || 1} value={rangeFrom} onChange={(e) => setRangeFrom(clampRange(Number(e.target.value) || 1))} />
             </Field>
             <Field label={t("to")}>
-              <input type="number" min={1} max={units.length || 1} value={rangeTo} onChange={(e) => setRangeTo(Math.max(1, Number(e.target.value) || 1))} />
+              <input type="number" min={1} max={units.length || 1} value={rangeTo} onChange={(e) => setRangeTo(clampRange(Number(e.target.value) || 1))} />
             </Field>
           </div>
         ) : null}

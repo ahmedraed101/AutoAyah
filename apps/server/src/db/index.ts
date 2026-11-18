@@ -118,8 +118,18 @@ export class Db {
         uploaded_at TEXT NOT NULL,
         PRIMARY KEY (job_id, platform)
       );
+      CREATE TABLE IF NOT EXISTS series_jobs (
+        series_id TEXT NOT NULL,
+        unit_key TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (series_id, job_id)
+      );
       CREATE INDEX IF NOT EXISTS series_items_job_idx ON series_items(job_id);
+      CREATE INDEX IF NOT EXISTS series_jobs_job_idx ON series_jobs(job_id);
       CREATE INDEX IF NOT EXISTS uploads_job_idx ON uploads(job_id);
+      INSERT OR IGNORE INTO series_jobs (series_id, unit_key, job_id, created_at)
+        SELECT series_id, unit_key, job_id, created_at FROM series_items;
     `);
   }
 
@@ -304,6 +314,7 @@ export class Db {
   }
 
   deleteSeries(id: string) {
+    this.raw.prepare("DELETE FROM series_jobs WHERE series_id = ?").run(id);
     this.raw.prepare("DELETE FROM series_items WHERE series_id = ?").run(id);
     this.raw.prepare("DELETE FROM series WHERE id = ?").run(id);
   }
@@ -319,6 +330,13 @@ export class Db {
          ON CONFLICT(series_id, unit_key) DO UPDATE SET job_id = excluded.job_id, created_at = excluded.created_at`,
       )
       .run(row.series_id, row.unit_key, row.job_id, row.created_at);
+    this.raw
+      .prepare(`INSERT OR IGNORE INTO series_jobs (series_id,unit_key,job_id,created_at) VALUES (?,?,?,?)`)
+      .run(row.series_id, row.unit_key, row.job_id, row.created_at);
+  }
+
+  hasSeriesJob(jobId: string): boolean {
+    return Boolean(this.raw.prepare("SELECT 1 FROM series_jobs WHERE job_id = ?").get(jobId));
   }
 
   seriesJobIds(): string[] {
@@ -341,7 +359,7 @@ export class Db {
       .prepare(
         `SELECT * FROM jobs
          WHERE status = 'done' AND parent_id IS NULL
-           AND id NOT IN (SELECT job_id FROM series_items)
+           AND id NOT IN (SELECT job_id FROM series_jobs)
          ORDER BY created_at DESC`,
       )
       .all() as JobRow[];

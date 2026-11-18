@@ -3,6 +3,12 @@ import { useTranslation } from "react-i18next";
 import { PLATFORMS, type PlatformId, type Upload } from "@autoayah/core";
 import { api } from "../api";
 
+function withScheme(url: string) {
+  const trimmed = url.trim();
+  if (!trimmed || /^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
 function ordered(targets: PlatformId[]) {
   const rank = new Map(targets.map((id, index) => [id, index]));
   return [...PLATFORMS].sort((a, b) => (rank.get(a.id) ?? 100) - (rank.get(b.id) ?? 100) || 0);
@@ -43,7 +49,8 @@ function UploadRow({
           aria-label={t("uploadLinkPh")}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => {
-            if ((draft || "") !== (upload?.url ?? "")) onLink(platform, draft.trim());
+            const next = withScheme(draft);
+            if (next !== (upload?.url ?? "")) onLink(platform, next);
           }}
         />
       ) : null}

@@ -2163,10 +2163,15 @@ input[type="range"]::-moz-range-thumb {
   outline-offset: 1px;
 }
 
-.unit-tile.st-done {
+.unit-tile.st-done,
+.unit-tile.st-removed {
   background: var(--turq-soft);
   color: var(--turq);
   border-color: transparent;
+}
+
+.unit-tile.st-removed {
+  border: 1px dashed var(--turq);
 }
 
 .unit-tile.st-queued,
@@ -2234,9 +2239,14 @@ input[type="range"]::-moz-range-thumb {
   border-color: #e0d3b8;
 }
 
-.book-page .unit-tile.st-done {
+.book-page .unit-tile.st-done,
+.book-page .unit-tile.st-removed {
   background: #e5f4ef;
   color: #0f6e62;
+}
+
+.book-page .unit-tile.st-removed {
+  border: 1px dashed #0f6e62;
 }
 
 .book-page .unit-tile.up-all {

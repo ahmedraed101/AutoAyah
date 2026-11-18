@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   MediaRefSchema,
   SeriesConfigSchema,
@@ -39,6 +39,19 @@ function toJob(row: JobRow): Job {
     startedAt: row.started_at,
     finishedAt: row.finished_at,
   };
+}
+
+/** Same video for the same unit, even after the library grows or shrinks. */
+function stableIndex(seriesId: string, unitKey: string, length: number): number {
+  const hex = createHash("sha1").update(`${seriesId}:${unitKey}`).digest("hex").slice(0, 8);
+  return Number.parseInt(hex, 16) % length;
+}
+
+function sameShape(a: Series, b: SeriesInput): boolean {
+  if (a.unitKind !== b.unitKind) return false;
+  if (a.unitKind !== "chunk") return true;
+  const list = (values?: number[]) => [...new Set(values ?? [])].sort((x, y) => x - y).join(",");
+  return (a.chunkSize ?? 10) === (b.chunkSize ?? 10) && list(a.chunkSurahs) === list(b.chunkSurahs);
 }
 
 function toUpload(row: { job_id: string; platform: string; url: string | null; uploaded_at: string }): Upload {
@@ -107,6 +120,9 @@ export class SeriesService {
     const existing = this.db.getSeries(id);
     if (!existing) return null;
     const parsed = SeriesInputSchema.parse(input);
+    if (this.db.listSeriesItems(id).length && !sameShape(this.toSeries(existing), parsed)) {
+      throw new Error("This series already has videos. Start a new series to change what each video covers.");
+    }
     this.db.updateSeries({
       id,
       name: parsed.name,
@@ -153,11 +169,23 @@ export class SeriesService {
     return units.map((unit) => {
       const link = linkByKey.get(unit.key);
       const job = link ? (jobs.get(link.job_id) ?? null) : null;
-      return { ...unit, juz: unitJuz(unit, divisions), status: job?.status ?? "none", job, uploads: job ? (uploads.get(job.id) ?? []) : [] };
+      const jobId = link?.job_id ?? null;
+      return {
+        ...unit,
+        juz: unitJuz(unit, divisions),
+        status: job?.status ?? (link ? "removed" : "none"),
+        job,
+        jobId,
+        uploads: jobId ? (uploads.get(jobId) ?? []) : [],
+      };
     });
   }
 
-  async run(id: string, select: UnitSelect, opts: { regenerate?: boolean } = {}): Promise<{ queued: number; skipped: number; error?: string } | null> {
+  async run(
+    id: string,
+    select: UnitSelect,
+    opts: { regenerate?: boolean } = {},
+  ): Promise<{ queued: number; skipped: number; unchanged: number; failed: number; errors: string[] } | null> {
     const series = this.get(id);
     if (!series) return null;
     const divisions = await this.loadDivisions();
@@ -167,15 +195,21 @@ export class SeriesService {
     const linkByKey = new Map(links.map((link) => [link.unit_key, link]));
     const statusOf = (unit: SeriesUnit) => {
       const link = linkByKey.get(unit.key);
-      return link ? jobs.get(link.job_id)?.status : undefined;
+      if (!link) return undefined;
+      return jobs.get(link.job_id)?.status ?? "removed";
     };
     const picked = unitsToQueue(units, select, statusOf, Boolean(opts.regenerate));
     const pool = await this.backgroundPool(series);
     const indexOf = new Map(units.map((unit, index) => [unit.key, index]));
     let queued = 0;
+    let unchanged = 0;
+    let failed = 0;
+    const errors: string[] = [];
     for (const unit of picked.queue) {
       try {
-        const backgrounds = pool ? [pool[indexOf.get(unit.key)! % pool.length]!] : series.template.backgrounds;
+        const slot = indexOf.get(unit.key)! % (pool?.length || 1);
+        const pick = pool ? (series.backgrounds.mode === "random" ? stableIndex(id, unit.key, pool.length) : slot) : 0;
+        const backgrounds = pool ? [pool[pick]!] : series.template.backgrounds;
         const config = VideoConfigSchema.parse({
           ...series.template,
           ...unit.range,
@@ -183,7 +217,12 @@ export class SeriesService {
           pngFrame: undefined,
           backgrounds,
         });
+        const previous = linkByKey.get(unit.key)?.job_id;
         const job = this.createJob(config);
+        if (job.id === previous) {
+          unchanged++;
+          continue;
+        }
         this.db.upsertSeriesItem({
           series_id: id,
           unit_key: unit.key,
@@ -192,10 +231,12 @@ export class SeriesService {
         });
         queued++;
       } catch (error) {
-        return { queued, skipped: picked.skipped, error: (error as Error).message };
+        failed++;
+        const message = (error as Error).message;
+        if (message && !errors.includes(message) && errors.length < 5) errors.push(message);
       }
     }
-    return { queued, skipped: picked.skipped };
+    return { queued, skipped: picked.skipped, unchanged, failed, errors };
   }
 
   setUpload(input: UploadInput): Upload {

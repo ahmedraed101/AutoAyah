@@ -379,14 +379,14 @@ app.put(
   handle(async (req, res) => {
     if (!requireDbStorage(res)) return;
     const body = UploadInputSchema.parse(req.body ?? {});
-    if (!queue.get(body.jobId)) return notFound(res);
+    if (!queue.get(body.jobId) && !db.hasSeriesJob(body.jobId)) return notFound(res);
     res.json(seriesService.setUpload(body));
   }),
 );
 app.delete("/api/uploads/:jobId/:platform", (req, res) => {
   if (!requireDbStorage(res)) return;
   const platform = PlatformIdSchema.safeParse(req.params.platform);
-  if (!platform.success || !queue.get(req.params.jobId)) return notFound(res);
+  if (!platform.success || (!queue.get(req.params.jobId) && !db.hasSeriesJob(req.params.jobId))) return notFound(res);
   seriesService.clearUpload(req.params.jobId, platform.data);
   res.json({ ok: true });
 });
