@@ -6,12 +6,15 @@ import "./i18n";
 import "./styles.css";
 import { api } from "./api";
 import { Layout } from "./components/Layout";
+import { Automation } from "./pages/Automation";
 import { Downloads } from "./pages/Downloads";
 import { Editor } from "./pages/Editor";
 import { Login } from "./pages/Login";
 import { Projects } from "./pages/Projects";
+import { Published } from "./pages/Published";
 import { Renders } from "./pages/Renders";
 import { Settings } from "./pages/Settings";
+import { Tracker } from "./pages/Tracker";
 import { useEditor } from "./store";
 
 function App() {
@@ -66,8 +69,11 @@ function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Editor />} />
+          <Route path="automation" element={<Automation />} />
+          <Route path="tracker" element={<Tracker />} />
           <Route path="projects" element={<Projects />} />
           <Route path="renders" element={<Renders />} />
+          <Route path="published" element={<Published />} />
           <Route path="downloads" element={<Downloads />} />
           <Route path="settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />

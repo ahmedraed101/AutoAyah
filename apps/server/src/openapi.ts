@@ -109,6 +109,34 @@ export function openApiSpec(publicUrl: string) {
           responses: { "200": { description: "{ added, unchecked, limited, exhausted, detector }" } },
         },
       },
+      "/api/series": {
+        get: { summary: "List automation series", responses: { "200": { description: "Series" } } },
+        post: { summary: "Create a series from a settings template", responses: { "200": { description: "Series" } } },
+      },
+      "/api/series/{id}": {
+        get: { summary: "Get a series", parameters: idParam, responses: { "200": { description: "Series" } } },
+        put: { summary: "Update a series", parameters: idParam, responses: { "200": { description: "Series" } } },
+        delete: { summary: "Delete a series (its videos stay)", parameters: idParam, responses: { "200": { description: "Deleted" } } },
+      },
+      "/api/series/{id}/units": {
+        get: { summary: "Every unit in a series with its render status and upload ticks", parameters: idParam, responses: { "200": { description: "{ units }" } } },
+      },
+      "/api/series/{id}/run": {
+        post: {
+          summary: "Queue one video per selected unit (all, range, keys, or the next N not done)",
+          parameters: idParam,
+          responses: { "200": { description: "{ queued, skipped, error? }" } },
+        },
+      },
+      "/api/uploads": {
+        put: { summary: "Mark a finished video as uploaded to a platform, with an optional link", responses: { "200": { description: "Upload" } } },
+      },
+      "/api/uploads/{jobId}/{platform}": {
+        delete: { summary: "Clear an upload tick", responses: { "200": { description: "Cleared" } } },
+      },
+      "/api/published": {
+        get: { summary: "Hand-made finished renders (not part of a series) with their upload ticks", responses: { "200": { description: "{ items }" } } },
+      },
       "/mcp": { post: { summary: "Model Context Protocol endpoint (JSON-RPC 2.0, streamable HTTP, stateless)", responses: { "200": { description: "JSON-RPC response" } } } },
     },
     components: { schemas: { VideoConfig: videoConfigJsonSchema, Job: jobJsonSchema } },

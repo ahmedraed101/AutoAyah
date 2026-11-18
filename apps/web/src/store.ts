@@ -1,4 +1,6 @@
-import { create } from "zustand";
+import { createContext, useContext } from "react";
+import { useStore, type StoreApi } from "zustand";
+import { createStore } from "zustand/vanilla";
 import { VideoConfigSchema, canUseMode, spansSurahs, type AppConfig, type VideoConfig } from "@autoayah/core";
 
 /** `surah` and `reciter` are placeholders until the user picks them (see `missing`). */
@@ -63,32 +65,58 @@ const stored = <T extends string>(key: string, allowed: readonly T[], fallback: 
   return v && allowed.includes(v) ? v : fallback;
 };
 
-export const useEditor = create<State>((set, get) => ({
-  config: defaultConfig,
-  missing: { surah: true, reciter: true },
-  projectName: "Untitled",
-  theme: stored("aa-theme", ["dark", "light"] as const, "dark"),
-  lang: stored("aa-lang", ["en", "ar"] as const, "ar"),
-  panel: "ayat",
-  setConfig: (patch) => {
-    set((s) => apply(s, { ...s.config, ...patch }, patch));
-    return !get().configError;
-  },
-  setNested: (key, value) => set((s) => apply(s, { ...s.config, [key]: value })),
-  setPanel: (panel) => set({ panel }),
-  setTheme: (theme) => {
-    localStorage.setItem("aa-theme", theme);
-    document.documentElement.dataset.theme = theme;
-    set({ theme });
-  },
-  setLang: (lang) => {
-    localStorage.setItem("aa-lang", lang);
-    document.documentElement.lang = lang;
-    document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
-    set({ lang });
-  },
-  setAppConfig: (appConfig) =>
-    set((s) => (canUseMode(s.config.mode, appConfig.capabilities) ? { appConfig } : { appConfig, config: { ...s.config, mode: "ayah" } })),
-  setProject: (projectName, projectId) => set({ projectName, projectId }),
-  setSelectedAyah: (selectedAyah) => set({ selectedAyah }),
-}));
+export type EditorState = State;
+
+/** A fresh editor. The automation page keeps its template in its own store so it never touches the open project. */
+export function createEditorStore(initial?: { config?: VideoConfig; missing?: Missing }): StoreApi<State> {
+  return createStore<State>((set, get) => ({
+    config: initial?.config ?? defaultConfig,
+    missing: initial?.missing ?? { surah: true, reciter: true },
+    projectName: "Untitled",
+    theme: stored("aa-theme", ["dark", "light"] as const, "dark"),
+    lang: stored("aa-lang", ["en", "ar"] as const, "ar"),
+    panel: "ayat",
+    setConfig: (patch) => {
+      set((s) => apply(s, { ...s.config, ...patch }, patch));
+      return !get().configError;
+    },
+    setNested: (key, value) => set((s) => apply(s, { ...s.config, [key]: value })),
+    setPanel: (panel) => set({ panel }),
+    setTheme: (theme) => {
+      localStorage.setItem("aa-theme", theme);
+      document.documentElement.dataset.theme = theme;
+      set({ theme });
+    },
+    setLang: (lang) => {
+      localStorage.setItem("aa-lang", lang);
+      document.documentElement.lang = lang;
+      document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+      set({ lang });
+    },
+    setAppConfig: (appConfig) =>
+      set((s) => (canUseMode(s.config.mode, appConfig.capabilities) ? { appConfig } : { appConfig, config: { ...s.config, mode: "ayah" } })),
+    setProject: (projectName, projectId) => set({ projectName, projectId }),
+    setSelectedAyah: (selectedAyah) => set({ selectedAyah }),
+  }));
+}
+
+export const editorStore = createEditorStore();
+
+/** When set, `useEditor` reads the video from this store. Theme, language and app config stay on the global store. */
+export const EditorStoreContext = createContext<StoreApi<State> | null>(null);
+
+export function useEditor(): State {
+  const scoped = useContext(EditorStoreContext);
+  const local = useStore(scoped ?? editorStore);
+  const global = useStore(editorStore);
+  if (!scoped) return local;
+  return {
+    ...local,
+    theme: global.theme,
+    setTheme: global.setTheme,
+    lang: global.lang,
+    setLang: global.setLang,
+    appConfig: global.appConfig,
+    setAppConfig: global.setAppConfig,
+  };
+}

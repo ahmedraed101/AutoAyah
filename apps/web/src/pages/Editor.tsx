@@ -30,6 +30,7 @@ import { Icon, Rosette } from "../components/Icon";
 import { isActive, useJobs } from "../jobs";
 import { useEditor, type Panel } from "../store";
 import { RangePicker } from "../components/RangePicker";
+import { MediaGrid, mediaRefFrom, rememberMedia, useBackgroundLibrary } from "../components/MediaGrid";
 import { useDivisionTitle } from "../components/SurahLabel";
 import { localDigits, rangeText, surahTitle, useSurahs } from "../surahs";
 import { groupBy, languageName } from "../catalog";
@@ -74,7 +75,8 @@ const draftKey = (c: VideoConfig) =>
     c.style.mushafView,
   ]);
 
-export function Editor() {
+export function Editor({ variant = "editor" }: { variant?: "editor" | "template" }) {
+  const template = variant === "template";
   const { t } = useTranslation();
   const { config, configError, missing, setConfig, setNested, panel, setPanel, appConfig, selectedAyah, setSelectedAyah, setProject, projectId, lang } =
     useEditor();
@@ -93,12 +95,8 @@ export function Editor() {
   const { jobs, upsert } = useJobs();
   const [dismissedResult, setDismissedResult] = useState<string>();
   const [status, setStatus] = useState<string>();
-  const [media, setMedia] = useState<MediaResult[]>([]);
-  const [mediaKind, setMediaKind] = useState<"image" | "video">("image");
-  const [mediaNote, setMediaNote] = useState<string>();
-  const [mediaDone, setMediaDone] = useState(false);
-  const [searching, setSearching] = useState(false);
-  const shownKind = useRef(mediaKind);
+  const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  const library = useBackgroundLibrary(panel === "background");
   const composeAbort = useRef<AbortController | null>(null);
   const stage = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -107,7 +105,6 @@ export function Editor() {
   const [playingAyah, setPlayingAyah] = useState<string>();
   const [stageSize, setStageSize] = useState({ width: 400, height: 700 });
   const [fullscreenPreview, setFullscreenPreview] = useState(false);
-  const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
 
   useEffect(() => {
     const el = stage.current;
@@ -295,82 +292,19 @@ export function Editor() {
     setTimeout(() => setStatus(undefined), 2000);
   };
 
-  const browserKeys = async () => (appConfig?.storageMode === "browser" ? await browserStore.getKeys() : undefined);
-
-  const loadMoreMedia = async (kind: "image" | "video") => {
-    setSearching(true);
-    try {
-      const res = await api.moreMedia({ kind, keys: await browserKeys() });
-      if (shownKind.current !== kind) return;
-      setMedia((prev) => {
-        const seen = new Set(prev.map((m) => `${m.provider}-${m.id}`));
-        return [...prev, ...res.added.filter((m) => !seen.has(`${m.provider}-${m.id}`))];
-      });
-      setMediaDone(res.exhausted);
-      const notes = [
-        res.unchecked ? t("uncheckedResults", { n: res.unchecked }) : "",
-        res.limited.length ? t("providersLimited", { names: res.limited.join(", ") }) : "",
-      ].filter(Boolean);
-      setMediaNote(notes.join(" ") || undefined);
-    } catch (err) {
-      if (shownKind.current === kind) setMediaNote((err as Error).message);
-    } finally {
-      setSearching(false);
-    }
-  };
-
-  useEffect(() => {
-    if (panel !== "background") return;
-    if (shownKind.current !== mediaKind) setMedia([]);
-    shownKind.current = mediaKind;
-    setMediaNote(undefined);
-    setMediaDone(false);
-    let live = true;
-    api
-      .mediaLibrary(mediaKind)
-      .then((res) => {
-        if (!live) return;
-        setMedia((prev) => {
-          const saved = new Set(res.results.map((m) => `${m.provider}-${m.id}`));
-          return [...res.results, ...prev.filter((m) => !saved.has(`${m.provider}-${m.id}`))];
-        });
-        if (!res.results.length) void loadMoreMedia(mediaKind);
-      })
-      .catch((err: Error) => live && setMediaNote(err.message));
-    return () => {
-      live = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panel, mediaKind]);
-
   const applyMedia = (m: MediaResult) => {
     setNested("backgrounds", [
       {
         type: m.type,
         fromAyah: config.from,
         toAyah: config.to,
-        media: {
-          provider: m.provider,
-          id: m.id,
-          url: m.url,
-          previewUrl: m.previewUrl,
-          attribution: m.attribution,
-          photographer: m.photographer,
-          photographerUrl: m.photographerUrl,
-          downloadLocation: m.downloadLocation,
-          duration: m.duration,
-        },
+        media: mediaRefFrom(m),
       },
     ]);
-    if (m.provider === "unsplash" && m.downloadLocation) {
-      void browserKeys().then((k) => api.trackUnsplash(m.downloadLocation!, k?.unsplash).catch(() => undefined));
-    }
-    if (m.provider === "pexels" || m.provider === "unsplash" || m.provider === "pixabay") {
-      api.keepMedia({ type: m.type, media: m }).catch(() => undefined);
-    }
+    rememberMedia(m, appConfig?.storageMode);
   };
 
-  const onUpload = async (file: File) => applyMedia(await api.uploadMedia(file));
+  const onUpload = async (file: File) => applyMedia(await library.upload(file));
 
   // The newest job for exactly this video; any change to the settings is a new video that can be queued.
   const configHash = useMemo(() => hashConfig(config), [config]);
@@ -553,7 +487,7 @@ export function Editor() {
         <div className="tool-body" ref={body} role="tabpanel">
           {panel === "ayat" && (
             <div className="fields">
-              <RangePicker />
+              {template ? <p className="field-hint">{t("templateRangeHint")}</p> : <RangePicker />}
               <Section title={t("onScreen")}>
                 <div className="views" role="radiogroup" aria-label={t("mode")}>
                   {VIEWS.map((m) => {
@@ -899,6 +833,7 @@ export function Editor() {
 
           {panel === "background" && (
             <div className="fields">
+              {template ? <p className="field-hint">{t("templateBgHint")}</p> : null}
               {selectedBg?.media?.attribution ? <p className="field-hint">{selectedBg.media.attribution}</p> : null}
               <div className="btn-row">
                 <label className="btn btn-quiet">
@@ -968,8 +903,8 @@ export function Editor() {
                 </>
               ) : null}
               <Segmented
-                value={mediaKind}
-                onChange={setMediaKind}
+                value={library.mediaKind}
+                onChange={library.setMediaKind}
                 options={[
                   { value: "image", label: t("images") },
                   { value: "video", label: t("videos") },
@@ -978,38 +913,15 @@ export function Editor() {
               <p className="field-hint">
                 {t("peopleFiltered")} {t("mediaSaved")}
               </p>
-              {mediaNote ? <p className="notice warn">{mediaNote}</p> : null}
-              {media.length ? (
-                <div className="media-grid">
-                  {media.map((m) => (
-                    <button
-                      type="button"
-                      key={`${m.provider}-${m.id}`}
-                      className={`media-tile${selectedBg?.media?.id === m.id ? " on" : ""}${m.checked === false ? " unchecked" : ""}`}
-                      title={m.attribution}
-                      aria-pressed={selectedBg?.media?.id === m.id}
-                      onClick={() => applyMedia(m)}
-                    >
-                      <img src={m.previewUrl ?? m.url} alt={m.attribution ?? ""} loading="lazy" />
-                      {m.type === "video" ? (
-                        <span className="badge">
-                          <Icon name="play" size={12} />
-                        </span>
-                      ) : null}
-                      {selectedBg?.media?.id === m.id ? (
-                        <span className="tick">
-                          <Icon name="check" size={14} />
-                        </span>
-                      ) : null}
-                    </button>
-                  ))}
-                </div>
+              {library.mediaNote ? <p className="notice warn">{library.mediaNote}</p> : null}
+              {library.media.length ? (
+                <MediaGrid items={library.media} isSelected={(m) => selectedBg?.media?.id === m.id} onPick={applyMedia} />
               ) : null}
-              {mediaDone ? (
+              {library.mediaDone ? (
                 <p className="field-hint">{t("mediaExhausted")}</p>
               ) : (
-                <button type="button" className="btn btn-quiet load-more" disabled={searching} onClick={() => void loadMoreMedia(mediaKind)}>
-                  {searching ? t("searching") : t("loadMore")}
+                <button type="button" className="btn btn-quiet load-more" disabled={library.searching} onClick={() => void library.loadMore(library.mediaKind)}>
+                  {library.searching ? t("searching") : t("loadMore")}
                 </button>
               )}
             </div>
@@ -1018,7 +930,7 @@ export function Editor() {
       </section>
 
       <footer className="action-bar">
-        {created?.outputUrl && dismissedResult !== created.id ? (
+        {!template && created?.outputUrl && dismissedResult !== created.id ? (
           <div className="result">
             {/\.(mp4|webm)$/.test(created.outputUrl) ? <video src={created.outputUrl} controls playsInline /> : null}
             {created.outputUrl.endsWith(".png") ? <img src={created.outputUrl} alt="" /> : null}
@@ -1079,40 +991,44 @@ export function Editor() {
               </span>
             )}
           </div>
-          {rendering ? (
-            <button type="button" className="btn btn-quiet" onClick={() => void api.cancelJob(rendering.id).then(upsert)}>
-              {t("cancel")}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="btn btn-quiet"
-              aria-label={t("saveProject")}
-              disabled={!ready}
-              onClick={() => void saveProject().catch((e: Error) => setError(e.message))}
-            >
-              <Icon name="save" size={18} />
-              <span className="hide-xs">{t("saveProject")}</span>
-            </button>
+          {template ? null : (
+            <>
+              {rendering ? (
+                <button type="button" className="btn btn-quiet" onClick={() => void api.cancelJob(rendering.id).then(upsert)}>
+                  {t("cancel")}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-quiet"
+                  aria-label={t("saveProject")}
+                  disabled={!ready}
+                  onClick={() => void saveProject().catch((e: Error) => setError(e.message))}
+                >
+                  <Icon name="save" size={18} />
+                  <span className="hide-xs">{t("saveProject")}</span>
+                </button>
+              )}
+              <span className="select export-select">
+                <select aria-label={t("exportFormat")} value={config.export} onChange={(e) => setConfig({ export: e.target.value as VideoConfig["export"] })}>
+                  {EXPORTS.map((x) => (
+                    <option key={x.value} value={x.value}>
+                      {x.label}
+                    </option>
+                  ))}
+                </select>
+              </span>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void generate().catch((e: Error) => setError(e.message))}
+                disabled={!ready || Boolean(rendering || created)}
+                title={rendering ? t("alreadyQueuedHint") : created ? t("alreadyCreatedHint") : undefined}
+              >
+                {rendering ? t("inQueue") : created ? t("created") : t("generate")}
+              </button>
+            </>
           )}
-          <span className="select export-select">
-            <select aria-label={t("exportFormat")} value={config.export} onChange={(e) => setConfig({ export: e.target.value as VideoConfig["export"] })}>
-              {EXPORTS.map((x) => (
-                <option key={x.value} value={x.value}>
-                  {x.label}
-                </option>
-              ))}
-            </select>
-          </span>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => void generate().catch((e: Error) => setError(e.message))}
-            disabled={!ready || Boolean(rendering || created)}
-            title={rendering ? t("alreadyQueuedHint") : created ? t("alreadyCreatedHint") : undefined}
-          >
-            {rendering ? t("inQueue") : created ? t("created") : t("generate")}
-          </button>
         </div>
       </footer>
 

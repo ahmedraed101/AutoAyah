@@ -10,8 +10,11 @@ export function Layout() {
 
   const links: { to: string; label: string; icon: IconName }[] = [
     { to: "/", label: t("editor"), icon: "create" },
+    { to: "/automation", label: t("automation"), icon: "automation" },
+    { to: "/tracker", label: t("tracker"), icon: "tracker" },
     { to: "/projects", label: t("projects"), icon: "projects" },
     { to: "/renders", label: t("renders"), icon: "renders" },
+    { to: "/published", label: t("published"), icon: "published" },
     ...(appConfig?.showDownloads ? [{ to: "/downloads", label: t("downloads"), icon: "library" as const }] : []),
     { to: "/settings", label: t("settings"), icon: "settings" },
   ];

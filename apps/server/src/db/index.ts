@@ -97,6 +97,29 @@ export class Db {
       CREATE INDEX IF NOT EXISTS jobs_status_idx ON jobs(status);
       CREATE INDEX IF NOT EXISTS jobs_hash_idx ON jobs(config_hash);
       CREATE INDEX IF NOT EXISTS jobs_created_idx ON jobs(created_at);
+      CREATE TABLE IF NOT EXISTS series (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        config_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS series_items (
+        series_id TEXT NOT NULL,
+        unit_key TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (series_id, unit_key)
+      );
+      CREATE TABLE IF NOT EXISTS uploads (
+        job_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        url TEXT,
+        uploaded_at TEXT NOT NULL,
+        PRIMARY KEY (job_id, platform)
+      );
+      CREATE INDEX IF NOT EXISTS series_items_job_idx ON series_items(job_id);
+      CREATE INDEX IF NOT EXISTS uploads_job_idx ON uploads(job_id);
     `);
   }
 
@@ -258,6 +281,94 @@ export class Db {
       .prepare(`INSERT INTO media_cursors (key,next_page,done) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET next_page=excluded.next_page, done=excluded.done`)
       .run(row.key, row.next_page, row.done);
   }
+
+  // Automation series
+  listSeries(): SeriesRow[] {
+    return this.raw.prepare("SELECT * FROM series ORDER BY updated_at DESC").all() as SeriesRow[];
+  }
+
+  getSeries(id: string): SeriesRow | undefined {
+    return this.raw.prepare("SELECT * FROM series WHERE id = ?").get(id) as SeriesRow | undefined;
+  }
+
+  insertSeries(row: SeriesRow) {
+    this.raw
+      .prepare(`INSERT INTO series (id,name,config_json,created_at,updated_at) VALUES (?,?,?,?,?)`)
+      .run(row.id, row.name, row.config_json, row.created_at, row.updated_at);
+  }
+
+  updateSeries(row: SeriesRow) {
+    this.raw
+      .prepare(`UPDATE series SET name = ?, config_json = ?, updated_at = ? WHERE id = ?`)
+      .run(row.name, row.config_json, row.updated_at, row.id);
+  }
+
+  deleteSeries(id: string) {
+    this.raw.prepare("DELETE FROM series_items WHERE series_id = ?").run(id);
+    this.raw.prepare("DELETE FROM series WHERE id = ?").run(id);
+  }
+
+  listSeriesItems(seriesId: string): SeriesItemRow[] {
+    return this.raw.prepare("SELECT * FROM series_items WHERE series_id = ?").all(seriesId) as SeriesItemRow[];
+  }
+
+  upsertSeriesItem(row: SeriesItemRow) {
+    this.raw
+      .prepare(
+        `INSERT INTO series_items (series_id,unit_key,job_id,created_at) VALUES (?,?,?,?)
+         ON CONFLICT(series_id, unit_key) DO UPDATE SET job_id = excluded.job_id, created_at = excluded.created_at`,
+      )
+      .run(row.series_id, row.unit_key, row.job_id, row.created_at);
+  }
+
+  seriesJobIds(): string[] {
+    return (this.raw.prepare("SELECT job_id FROM series_items").all() as { job_id: string }[]).map((row) => row.job_id);
+  }
+
+  jobsByIds(ids: string[]): JobRow[] {
+    const out: JobRow[] = [];
+    for (let i = 0; i < ids.length; i += 400) {
+      const chunk = ids.slice(i, i + 400);
+      const marks = chunk.map(() => "?").join(",");
+      out.push(...(this.raw.prepare(`SELECT * FROM jobs WHERE id IN (${marks})`).all(...chunk) as JobRow[]));
+    }
+    return out;
+  }
+
+  /** Finished videos made by hand: not a batch child, and not created by a series. */
+  publishedJobs(): JobRow[] {
+    return this.raw
+      .prepare(
+        `SELECT * FROM jobs
+         WHERE status = 'done' AND parent_id IS NULL
+           AND id NOT IN (SELECT job_id FROM series_items)
+         ORDER BY created_at DESC`,
+      )
+      .all() as JobRow[];
+  }
+
+  listUploads(jobIds: string[]): UploadRow[] {
+    const out: UploadRow[] = [];
+    for (let i = 0; i < jobIds.length; i += 400) {
+      const chunk = jobIds.slice(i, i + 400);
+      const marks = chunk.map(() => "?").join(",");
+      out.push(...(this.raw.prepare(`SELECT * FROM uploads WHERE job_id IN (${marks})`).all(...chunk) as UploadRow[]));
+    }
+    return out;
+  }
+
+  upsertUpload(row: UploadRow) {
+    this.raw
+      .prepare(
+        `INSERT INTO uploads (job_id,platform,url,uploaded_at) VALUES (?,?,?,?)
+         ON CONFLICT(job_id, platform) DO UPDATE SET url = excluded.url, uploaded_at = excluded.uploaded_at`,
+      )
+      .run(row.job_id, row.platform, row.url, row.uploaded_at);
+  }
+
+  deleteUpload(jobId: string, platform: string) {
+    this.raw.prepare("DELETE FROM uploads WHERE job_id = ? AND platform = ?").run(jobId, platform);
+  }
 }
 
 export type LibraryMediaRow = {
@@ -270,6 +381,10 @@ export type LibraryMediaRow = {
 };
 
 export type CursorRow = { key: string; next_page: number; done: number };
+
+export type SeriesRow = { id: string; name: string; config_json: string; created_at: string; updated_at: string };
+export type SeriesItemRow = { series_id: string; unit_key: string; job_id: string; created_at: string };
+export type UploadRow = { job_id: string; platform: string; url: string | null; uploaded_at: string };
 
 export function openDb(dbPath: string) {
   return new Db(dbPath);

@@ -1,4 +1,17 @@
-import type { AppConfig, Job, MediaRef, Project, QuranDivisions, VideoConfig } from "@autoayah/core";
+import type {
+  AppConfig,
+  Job,
+  MediaRef,
+  PlatformId,
+  Project,
+  QuranDivisions,
+  Series,
+  SeriesInput,
+  SeriesUnitView,
+  UnitSelect,
+  Upload,
+  VideoConfig,
+} from "@autoayah/core";
 import type { CompositionProps } from "@autoayah/templates";
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
@@ -97,4 +110,16 @@ export const api = {
     json<{ ok: boolean }>("/api/media/unsplash-download", { method: "POST", body: JSON.stringify({ downloadLocation, accessKey }) }),
   authStatus: () => json<{ required: boolean; authenticated: boolean }>("/api/auth/status"),
   login: (password: string) => json<{ ok: boolean }>("/api/auth/login", { method: "POST", body: JSON.stringify({ password }) }),
+  series: () => json<Series[]>("/api/series"),
+  seriesOne: (id: string) => json<Series>(`/api/series/${id}`),
+  createSeries: (body: SeriesInput) => json<Series>("/api/series", { method: "POST", body: JSON.stringify(body) }),
+  updateSeries: (id: string, body: SeriesInput) => json<Series>(`/api/series/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteSeries: (id: string) => json<{ ok: boolean }>(`/api/series/${id}`, { method: "DELETE" }),
+  seriesUnits: (id: string) => json<{ units: SeriesUnitView[] }>(`/api/series/${id}/units`),
+  runSeries: (id: string, body: { select: UnitSelect; regenerate?: boolean }) =>
+    json<{ queued: number; skipped: number; error?: string }>(`/api/series/${id}/run`, { method: "POST", body: JSON.stringify(body) }),
+  setUpload: (body: { jobId: string; platform: PlatformId; url?: string | null }) =>
+    json<Upload>("/api/uploads", { method: "PUT", body: JSON.stringify(body) }),
+  clearUpload: (jobId: string, platform: PlatformId) => json<{ ok: boolean }>(`/api/uploads/${jobId}/${platform}`, { method: "DELETE" }),
+  published: () => json<{ items: { job: Job; uploads: Upload[] }[] }>("/api/published"),
 };

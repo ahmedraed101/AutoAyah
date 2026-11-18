@@ -18,6 +18,11 @@ Default: http://localhost:3737
 - GET /api/jobs/:id
 - GET /api/jobs/:id/events — SSE progress
 - POST /api/jobs/:id/cancel | /api/jobs/:id/retry, DELETE /api/jobs/:id
+- GET/POST /api/series, GET/PUT/DELETE /api/series/:id — a named automation (one video per surah, juz, hizb, rub, page, manzil, or chunk of ayat)
+- GET /api/series/:id/units — each unit's render status and where it was uploaded
+- POST /api/series/:id/run — body `{ select: {type:"all"|"range"|"keys"|"nextN", ...}, regenerate? }` queues the chosen units
+- PUT /api/uploads — `{ jobId, platform, url? }` records an upload tick; DELETE /api/uploads/:jobId/:platform clears it
+- GET /api/published — finished videos made by hand (not part of a series), with the same upload ticks
 - POST /api/media/search — { query, kind: "image"|"video", page? } → people-free stock results + hasMore
 - GET /api/media/library?kind=image|video — backgrounds found so far (no provider calls)
 - POST /api/media/more — { kind } → new backgrounds via rotating scenery keywords; { added, limited, exhausted }

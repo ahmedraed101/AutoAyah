@@ -7,7 +7,19 @@ import cors from "cors";
 import express from "express";
 import multer from "multer";
 import { ZodError, z } from "zod";
-import { MediaRefSchema, VideoConfigSchema, clipAyahCount, clipSegments, renderFileName, type Job, type VideoConfig } from "@autoayah/core";
+import {
+  MediaRefSchema,
+  PlatformIdSchema,
+  SeriesInputSchema,
+  UnitSelectSchema,
+  UploadInputSchema,
+  VideoConfigSchema,
+  clipAyahCount,
+  clipSegments,
+  renderFileName,
+  type Job,
+  type VideoConfig,
+} from "@autoayah/core";
 import {
   createFsCache,
   createResolver,
@@ -36,6 +48,7 @@ import { BACKGROUND_ROUTE, MediaLibrary, PREVIEW_ROUTE, backgroundKey, previewKe
 import { mountMcp } from "./mcp.js";
 import { openApiSpec } from "./openapi.js";
 import { isTerminal, RenderQueue } from "./queue.js";
+import { SeriesService } from "./series.js";
 import { buildProps, getServeUrl, renderJob } from "./render.js";
 import { DbStore, type ApiKeys } from "./stores.js";
 
@@ -146,6 +159,8 @@ const queue = new RenderQueue(db, env.MAX_CONCURRENT_RENDERS, async (queued, onP
 });
 
 queue.recover();
+
+const seriesService = new SeriesService(db, mediaLibrary, () => resolver().getDivisions(), createJob);
 
 if (env.VIDEO_RETENTION_HOURS) {
   const hours = env.VIDEO_RETENTION_HOURS;
@@ -307,6 +322,76 @@ app.delete("/api/projects/:id", (req, res) => {
   if (!requireDbStorage(res)) return;
   store.deleteProject(req.params.id);
   res.json({ ok: true });
+});
+
+// Automation series, the tracker, and upload ticks. Jobs stay in the render queue; deleting a series does not delete them.
+app.get("/api/series", (_req, res) => {
+  if (requireDbStorage(res)) res.json(seriesService.list());
+});
+app.post(
+  "/api/series",
+  handle(async (req, res) => {
+    if (!requireDbStorage(res)) return;
+    res.json(seriesService.create(SeriesInputSchema.parse(req.body ?? {})));
+  }),
+);
+app.get("/api/series/:id", (req, res) => {
+  if (!requireDbStorage(res)) return;
+  const series = seriesService.get(req.params.id);
+  if (!series) return notFound(res);
+  res.json(series);
+});
+app.put(
+  "/api/series/:id",
+  handle(async (req, res) => {
+    if (!requireDbStorage(res)) return;
+    const saved = seriesService.update(req.params.id as string, SeriesInputSchema.parse(req.body ?? {}));
+    if (!saved) return notFound(res);
+    res.json(saved);
+  }),
+);
+app.delete("/api/series/:id", (req, res) => {
+  if (!requireDbStorage(res)) return;
+  if (!seriesService.remove(req.params.id)) return notFound(res);
+  res.json({ ok: true });
+});
+app.get(
+  "/api/series/:id/units",
+  handle(async (req, res) => {
+    if (!requireDbStorage(res)) return;
+    const units = await seriesService.units(req.params.id as string);
+    if (!units) return notFound(res);
+    res.json({ units });
+  }),
+);
+app.post(
+  "/api/series/:id/run",
+  handle(async (req, res) => {
+    if (!requireDbStorage(res)) return;
+    const body = z.object({ select: UnitSelectSchema, regenerate: z.boolean().optional() }).parse(req.body ?? {});
+    const result = await seriesService.run(req.params.id as string, body.select, { regenerate: body.regenerate });
+    if (!result) return notFound(res);
+    res.json(result);
+  }),
+);
+app.put(
+  "/api/uploads",
+  handle(async (req, res) => {
+    if (!requireDbStorage(res)) return;
+    const body = UploadInputSchema.parse(req.body ?? {});
+    if (!queue.get(body.jobId)) return notFound(res);
+    res.json(seriesService.setUpload(body));
+  }),
+);
+app.delete("/api/uploads/:jobId/:platform", (req, res) => {
+  if (!requireDbStorage(res)) return;
+  const platform = PlatformIdSchema.safeParse(req.params.platform);
+  if (!platform.success || !queue.get(req.params.jobId)) return notFound(res);
+  seriesService.clearUpload(req.params.jobId, platform.data);
+  res.json({ ok: true });
+});
+app.get("/api/published", (_req, res) => {
+  if (requireDbStorage(res)) res.json(seriesService.published());
 });
 
 // API keys (self-hosted)

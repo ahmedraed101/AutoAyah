@@ -8,7 +8,7 @@ import { CaptionCopy } from "../components/Caption";
 import { ConfigSummary, useDifferences } from "../components/ConfigSummary";
 import { Icon } from "../components/Icon";
 import { Empty, SurahLabel } from "../components/SurahLabel";
-import { useEditor } from "../store";
+import { editorStore, useEditor } from "../store";
 
 export function Projects() {
   const { t } = useTranslation();
@@ -34,7 +34,7 @@ export function Projects() {
   const differences = useDifferences(items.map((p) => p.config));
   const open = (p: Project) => {
     if (!setConfig(p.config)) {
-      setError(useEditor.getState().configError);
+      setError(editorStore.getState().configError);
       return;
     }
     setProject(p.name, p.id);
